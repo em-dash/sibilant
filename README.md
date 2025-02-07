@@ -1,2 +1,2 @@
 # sibilant
-get it?
+lisp lol
