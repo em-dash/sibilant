@@ -15,6 +15,12 @@ pub fn build(b: *std.Build) void {
         .root_module = exe_mod,
     });
 
+    const zg = b.dependency("zg", .{});
+    exe.root_module.addImport("Normalize", zg.module("Normalize"));
+    exe.root_module.addImport("PropsData", zg.module("PropsData"));
+    exe.root_module.addImport("GenCatData", zg.module("GenCatData"));
+    exe.root_module.addImport("code_point", zg.module("code_point"));
+
     b.installArtifact(exe);
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
