@@ -5,7 +5,6 @@ pub const Token = struct {
     tag: Tag,
 
     const Tag = enum {
-        word,
         l,
         r,
         // quote,
@@ -13,6 +12,19 @@ pub const Token = struct {
         identifier,
         number,
     };
+};
+
+const builtins = block: {
+    // This is a little silly but why not
+    const Tuple = std.meta.Tuple(&[_]type{ []const u8, Tag });
+    var list: []const Tuple = &[_]Tuple{};
+    for (std.enums.values(Tag)) |v| {
+        const t = @tagName(v);
+        if (std.mem.startsWith(u8, t, "builtin_")) {
+            list = list ++ &[_]Tuple{.{ t[8..], v }};
+        }
+    }
+    break :block std.StaticStringMap(Tag).initComptime(list);
 };
 
 fn isNumber(word: []const u8, props_data: PropsData) bool {
@@ -156,6 +168,7 @@ test tokenize {
 }
 
 const std = @import("std");
+
 const code_point = @import("code_point");
 const PropsData = @import("PropsData");
 const GenCatData = @import("GenCatData");
