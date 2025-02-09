@@ -1,16 +1,16 @@
-// pub fn eval(tree: *tree.Tree, index: tree.NodeIndex) void {
-//     switch (tree.getNode(index)) {
-//         .sexpr => {
-//             @compileError("lol");
-//         },
-//         .number => return,
-//         .string => return,
-//         .identifier => {
-//             @compileError("lol");
-//         },
-//     }
-// }
+pub fn eval(tree: *Tree, index: Tree.NodeIndex) void {
+    switch (tree.getNode(index)) {
+        .sexpr => {
+            @panic("lol");
+        },
+        .number => return,
+        .string => return,
+        .identifier => {
+            @panic("lol");
+        },
+    }
+}
 
 const std = @import("std");
 
-const tree = @import("tree");
+const Tree = @import("Tree.zig");

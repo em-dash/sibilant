@@ -4,12 +4,12 @@ pub fn main() !u8 {
 
 const std = @import("std");
 
-const tokens = @import("tokens.zig");
-const tree = @import("tree.zig");
+const tokenization = @import("tokenization.zig");
+const Tree = @import("Tree.zig");
 const eval = @import("eval.zig");
 
 test {
-    _ = tokens;
-    _ = tree;
-    _ = eval;
+    _ = std.testing.refAllDecls(tokenization);
+    _ = std.testing.refAllDecls(Tree);
+    _ = std.testing.refAllDecls(eval);
 }

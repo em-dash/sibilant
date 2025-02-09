@@ -1,11 +1,48 @@
-const StringIndex = enum(u32) { _ };
-const NodeIndex = enum(u32) {
+allocator: std.mem.Allocator,
+nodes: std.MultiArrayList(Node),
+identifiers: IdentifierMap,
+root: NodeIndex,
+// strings: []?[]u8,
+
+const Tree = @This();
+
+fn init(allocator: std.mem.Allocator) Tree {
+    return .{
+        .allocator = allocator,
+        .nodes = .{},
+        .identifiers = .empty,
+        .root = .none,
+        // .strings
+    };
+}
+
+pub fn deinit(self: *Tree) void {
+    self.nodes.deinit(self.allocator);
+    self.identifiers.deinit(self.allocator);
+    // self.allocator.free(self.strings);
+}
+
+pub fn setNode(self: *Tree, index: NodeIndex, element: Node) void {
+    self.nodes.set(@intFromEnum(index), element);
+}
+
+pub fn getNode(self: Tree, index: NodeIndex) Node {
+    return self.nodes.get(@intFromEnum(index));
+}
+
+pub fn addNode(self: *Tree, item: Node) !NodeIndex {
+    try self.nodes.append(self.allocator, item);
+    return @enumFromInt(self.nodes.items(.tags).len - 1);
+}
+
+pub const StringIndex = enum(u32) { _ };
+pub const NodeIndex = enum(u32) {
     none = std.math.maxInt(u32),
     _,
 
     const root: NodeIndex = @enumFromInt(0);
 };
-const IdentifierIndex = enum(u32) { _ };
+pub const IdentifierIndex = enum(u32) { _ };
 
 const IdentifierMap = struct {
     hashmap: std.StringHashMapUnmanaged(u32),
@@ -55,48 +92,11 @@ pub const Node = union(enum) {
     }
 };
 
-pub const Tree = struct {
-    allocator: std.mem.Allocator,
-    nodes: std.MultiArrayList(Node),
-    identifiers: IdentifierMap,
-    root: NodeIndex,
-    // strings: []?[]u8,
-
-    fn init(allocator: std.mem.Allocator) Tree {
-        return .{
-            .allocator = allocator,
-            .nodes = .{},
-            .identifiers = .empty,
-            .root = .none,
-            // .strings
-        };
-    }
-
-    pub fn deinit(self: *Tree) void {
-        self.nodes.deinit(self.allocator);
-        self.identifiers.deinit(self.allocator);
-        // self.allocator.free(self.strings);
-    }
-
-    pub fn setNode(self: *Tree, index: NodeIndex, element: Node) void {
-        self.nodes.set(@intFromEnum(index), element);
-    }
-
-    pub fn getNode(self: Tree, index: NodeIndex) Node {
-        return self.nodes.get(@intFromEnum(index));
-    }
-
-    pub fn addNode(self: *Tree, item: Node) !NodeIndex {
-        try self.nodes.append(self.allocator, item);
-        return @enumFromInt(self.nodes.items(.tags).len - 1);
-    }
-};
-
 const TokenIterator = struct {
     index: u32 = 0,
-    slice: []const tokens.Token,
+    slice: []const tokenization.Token,
 
-    fn next(self: *TokenIterator) ?*const tokens.Token {
+    fn next(self: *TokenIterator) ?*const tokenization.Token {
         if (self.index < self.slice.len) {
             const result = &self.slice[self.index];
             self.index += 1;
@@ -104,7 +104,7 @@ const TokenIterator = struct {
         } else return null;
     }
 
-    fn peek(self: *TokenIterator) ?*const tokens.Token {
+    fn peek(self: *TokenIterator) ?*const tokenization.Token {
         if (self.index < self.slice.len) {
             return &self.slice[self.index];
         } else return null;
@@ -164,13 +164,13 @@ fn recurseSexprs(
 pub fn parse(
     allocator: std.mem.Allocator,
     source: []const u8,
-    tokenized: []const tokens.Token,
+    tokens: []const tokenization.Token,
 ) !Tree {
     var tree = Tree.init(allocator);
     errdefer tree.deinit();
-    var iterator: TokenIterator = .{ .slice = tokenized };
+    var iterator: TokenIterator = .{ .slice = tokens };
 
-    if (tokenized.len == 0) {
+    if (tokens.len == 0) {
         tree.root = try tree.addNode(.{ .sexpr = .{ .value = .none, .next = .none } });
         return tree;
     }
@@ -194,9 +194,9 @@ pub fn parse(
 
 test parse {
     const source = "(lol lmao)";
-    const tokenized = try tokens.tokenize(std.testing.allocator, source);
-    defer std.testing.allocator.free(tokenized);
-    var tree = try parse(std.testing.allocator, source, tokenized);
+    const tokens = try tokenization.tokenize(std.testing.allocator, source);
+    defer std.testing.allocator.free(tokens);
+    var tree = try parse(std.testing.allocator, source, tokens);
     defer tree.deinit();
 
     return error.lol;
@@ -204,4 +204,4 @@ test parse {
 
 const std = @import("std");
 
-const tokens = @import("tokens.zig");
+const tokenization = @import("tokenization.zig");
