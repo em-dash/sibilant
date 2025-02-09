@@ -5,26 +5,13 @@ pub const Token = struct {
     tag: Tag,
 
     const Tag = enum {
-        l,
-        r,
+        open,
+        close,
         // quote,
         string,
         identifier,
         number,
     };
-};
-
-const builtins = block: {
-    // This is a little silly but why not
-    const Tuple = std.meta.Tuple(&[_]type{ []const u8, Tag });
-    var list: []const Tuple = &[_]Tuple{};
-    for (std.enums.values(Tag)) |v| {
-        const t = @tagName(v);
-        if (std.mem.startsWith(u8, t, "builtin_")) {
-            list = list ++ &[_]Tuple{.{ t[8..], v }};
-        }
-    }
-    break :block std.StaticStringMap(Tag).initComptime(list);
 };
 
 fn isNumber(word: []const u8, props_data: PropsData) bool {
@@ -60,7 +47,7 @@ pub fn tokenize(allocator: std.mem.Allocator, source: []const u8) ![]Token {
     if (source.len == 0) return &[_]Token{};
 
     var token_list = std.ArrayList(Token).init(allocator);
-    errdefer token_list.deinit();
+    // errdefer token_list.deinit();
 
     var iterator = code_point.Iterator{ .bytes = source };
     source_loop: while (true) {
@@ -78,13 +65,13 @@ pub fn tokenize(allocator: std.mem.Allocator, source: []const u8) ![]Token {
                     if (cp.code == '(') {
                         _ = iterator.next();
                         token.end = iterator.i;
-                        token.tag = .l;
+                        token.tag = .open;
                         try token_list.append(token);
                         break :token_loop;
                     } else if (cp.code == ')') {
                         _ = iterator.next();
                         token.end = iterator.i;
-                        token.tag = .r;
+                        token.tag = .close;
                         try token_list.append(token);
                         break :token_loop;
                     } else if (gen_cat_data.isLetter(cp.code) or
@@ -139,8 +126,8 @@ test tokenize {
         const actual = try tokenize(std.testing.allocator, "()");
         defer std.testing.allocator.free(actual);
         const expected = &[_]Token{
-            .{ .start = 0, .end = 1, .tag = .l },
-            .{ .start = 1, .end = 2, .tag = .r },
+            .{ .start = 0, .end = 1, .tag = .open },
+            .{ .start = 1, .end = 2, .tag = .close },
         };
         try std.testing.expectEqualSlices(Token, expected, actual);
     }
@@ -148,9 +135,9 @@ test tokenize {
         const actual = try tokenize(std.testing.allocator, "(blep)");
         defer std.testing.allocator.free(actual);
         const expected = &[_]Token{
-            .{ .start = 0, .end = 1, .tag = .l },
+            .{ .start = 0, .end = 1, .tag = .open },
             .{ .start = 1, .end = 5, .tag = .identifier },
-            .{ .start = 5, .end = 6, .tag = .r },
+            .{ .start = 5, .end = 6, .tag = .close },
         };
         try std.testing.expectEqualSlices(Token, expected, actual);
     }
@@ -159,8 +146,8 @@ test tokenize {
         defer std.testing.allocator.free(actual);
         const expected = &[_]Token{
             .{ .start = 0, .end = 1, .tag = .identifier },
-            .{ .start = 1, .end = 2, .tag = .l },
-            .{ .start = 3, .end = 4, .tag = .r },
+            .{ .start = 1, .end = 2, .tag = .open },
+            .{ .start = 3, .end = 4, .tag = .close },
             .{ .start = 5, .end = 8, .tag = .identifier },
         };
         try std.testing.expectEqualSlices(Token, expected, actual);

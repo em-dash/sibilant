@@ -46,11 +46,16 @@ pub const Node = union(enum) {
     identifier: IdentifierIndex,
 
     const empty_sexpr: Node = .{ .sexpr = .empty };
+
+    comptime {
+        for (@typeInfo(Node).@"union".fields) |field| if (@sizeOf(field.type) > 8)
+            @compileError("The " ++ field.name ++ " node body shouldn't be bigger than 8 bytes!");
+    }
 };
 
 pub const Tree = struct {
     allocator: std.mem.Allocator,
-    nodes: []Node,
+    nodes: std.MultiArrayList(Node),
     roots: []NodeIndex,
     identifiers: IdentifierMap,
     // strings: []?[]u8,
@@ -58,7 +63,8 @@ pub const Tree = struct {
     fn init(allocator: std.mem.Allocator) Tree {
         return .{
             .allocator = allocator,
-            .nodes = &.{},
+            // .nodes = &.{},
+            .nodes = .{},
             .roots = &.{},
             .identifiers = .empty,
             // .strings
@@ -66,25 +72,27 @@ pub const Tree = struct {
     }
 
     pub fn deinit(self: *Tree) void {
-        self.allocator.free(self.nodes);
+        self.nodes.deinit(self.allocator);
         self.allocator.free(self.roots);
         self.identifiers.deinit(self.allocator);
         // self.allocator.free(self.strings);
     }
 
-    fn getNodeMutable(self: Tree, index: NodeIndex) *Node {
-        return &self.nodes[@intFromEnum(index)];
+    pub fn setNode(self: *Tree, index: NodeIndex, element: Node) void {
+        self.nodes.set(@intFromEnum(index), element);
     }
 
-    pub fn getNode(self: Tree, index: NodeIndex) *const Node {
-        return self.getNodeMutable(index);
+    // fn getNodeDataPointer(self: Tree, index: NodeIndex) *@TypeOf(self.nodes).Elem.Bare {
+    //     return &self.nodes.items(.data)[@intFromEnum(index)];
+    // }
+
+    pub fn getNode(self: Tree, index: NodeIndex) Node {
+        return self.nodes.get(@intFromEnum(index));
     }
 
-    fn addNode(self: *Tree, comptime tag: std.meta.Tag(Node)) !NodeIndex {
-        var temp = std.ArrayList(Node).fromOwnedSlice(self.allocator, self.nodes);
-        try temp.append(@unionInit(Node, @tagName(tag), undefined));
-        self.nodes = try temp.toOwnedSlice();
-        return @enumFromInt(self.nodes.len - 1);
+    pub fn addNode(self: *Tree, item: Node) !NodeIndex {
+        try self.nodes.append(self.allocator, item);
+        return @enumFromInt(self.nodes.items(.tags).len - 1);
     }
 };
 
@@ -114,34 +122,34 @@ fn recurseSexprs(
 ) !NodeIndex {
     const token = if (iterator.next()) |t| t else return error.UnexpectedEof;
     switch (token.tag) {
-        .l => {
-            const root = try tree.addNode(.sexpr);
-            tree.getNodeMutable(root).sexpr.value =
+        .open => {
+            const root = try tree.addNode(.{ .sexpr = .{ .value = undefined, .next = .none } });
+            tree.nodes.slice().items(.data)[@intFromEnum(root)].sexpr.value =
                 try recurseSexprs(source, iterator, tree);
+
             var current = root;
             while (iterator.peek()) |t| {
-                if (t.tag == .r) {
+                if (t.tag == .close) {
                     _ = iterator.next();
                     break;
                 }
-                const next = try tree.addNode(.sexpr);
-                tree.getNodeMutable(current).sexpr.next = next;
+                const next = try tree.addNode(.{ .sexpr = .{ .value = undefined, .next = .none } });
+                tree.nodes.slice().items(.data)[@intFromEnum(current)].sexpr.next = next;
                 current = next;
-                tree.getNodeMutable(current).sexpr.value =
+                tree.nodes.slice().items(.data)[@intFromEnum(current)].sexpr.value =
                     try recurseSexprs(source, iterator, tree);
             } else return error.UnexpectedEof;
             return root;
         },
-        .r => {
-            return error.DontPutARightParenHerePls;
+        .close => {
+            return error.DontPutAClosingParenHerePls;
         },
         .string => {
             @panic("i didn't implement this yet sry");
         },
         .number => {
             const number = try std.fmt.parseFloat(f64, source[token.start..token.end]);
-            const node = try tree.addNode(.number);
-            tree.getNodeMutable(node).number = number;
+            const node = try tree.addNode(.{ .number = number });
             return node;
         },
         .identifier => {
@@ -149,8 +157,7 @@ fn recurseSexprs(
                 tree.allocator,
                 source[token.start..token.end],
             );
-            const node = try tree.addNode(.identifier);
-            tree.getNodeMutable(node).identifier = identifier;
+            const node = try tree.addNode(.{ .identifier = identifier });
             return node;
         },
     }
