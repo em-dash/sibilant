@@ -2,6 +2,8 @@ const StringIndex = enum(u32) { _ };
 const NodeIndex = enum(u32) {
     none = std.math.maxInt(u32),
     _,
+
+    const root: NodeIndex = @enumFromInt(0);
 };
 const IdentifierIndex = enum(u32) { _ };
 
@@ -56,24 +58,22 @@ pub const Node = union(enum) {
 pub const Tree = struct {
     allocator: std.mem.Allocator,
     nodes: std.MultiArrayList(Node),
-    roots: []NodeIndex,
     identifiers: IdentifierMap,
+    root: NodeIndex,
     // strings: []?[]u8,
 
     fn init(allocator: std.mem.Allocator) Tree {
         return .{
             .allocator = allocator,
-            // .nodes = &.{},
             .nodes = .{},
-            .roots = &.{},
             .identifiers = .empty,
+            .root = .none,
             // .strings
         };
     }
 
     pub fn deinit(self: *Tree) void {
         self.nodes.deinit(self.allocator);
-        self.allocator.free(self.roots);
         self.identifiers.deinit(self.allocator);
         // self.allocator.free(self.strings);
     }
@@ -81,10 +81,6 @@ pub const Tree = struct {
     pub fn setNode(self: *Tree, index: NodeIndex, element: Node) void {
         self.nodes.set(@intFromEnum(index), element);
     }
-
-    // fn getNodeDataPointer(self: Tree, index: NodeIndex) *@TypeOf(self.nodes).Elem.Bare {
-    //     return &self.nodes.items(.data)[@intFromEnum(index)];
-    // }
 
     pub fn getNode(self: Tree, index: NodeIndex) Node {
         return self.nodes.get(@intFromEnum(index));
@@ -172,16 +168,27 @@ pub fn parse(
 ) !Tree {
     var tree = Tree.init(allocator);
     errdefer tree.deinit();
-    var roots: std.ArrayListUnmanaged(NodeIndex) = .empty;
-    errdefer roots.deinit(allocator);
     var iterator: TokenIterator = .{ .slice = tokenized };
 
-    while (iterator.peek()) |_| {
-        const node = try recurseSexprs(source, &iterator, &tree);
-        try roots.append(allocator, node);
+    if (tokenized.len == 0) {
+        tree.root = try tree.addNode(.{ .sexpr = .{ .value = .none, .next = .none } });
+        return tree;
     }
 
-    tree.roots = try roots.toOwnedSlice(allocator);
+    const root = try tree.addNode(.{ .sexpr = .{ .value = undefined, .next = .none } });
+    tree.nodes.slice().items(.data)[@intFromEnum(root)].sexpr.value =
+        try recurseSexprs(source, &iterator, &tree);
+
+    var current = root;
+    while (iterator.peek()) |_| {
+        const next = try tree.addNode(.{ .sexpr = .{ .value = undefined, .next = .none } });
+        tree.nodes.slice().items(.data)[@intFromEnum(current)].sexpr.next = next;
+        current = next;
+        tree.nodes.slice().items(.data)[@intFromEnum(current)].sexpr.value =
+            try recurseSexprs(source, &iterator, &tree);
+    }
+
+    tree.root = root;
     return tree;
 }
 
@@ -191,6 +198,8 @@ test parse {
     defer std.testing.allocator.free(tokenized);
     var tree = try parse(std.testing.allocator, source, tokenized);
     defer tree.deinit();
+
+    return error.lol;
 }
 
 const std = @import("std");

@@ -6,8 +6,10 @@ const std = @import("std");
 
 const tokens = @import("tokens.zig");
 const tree = @import("tree.zig");
+const eval = @import("eval.zig");
 
 test {
-    inline for (.{ "tokens", "tree" }) |namespace|
-        std.testing.refAllDeclsRecursive(@field(@This(), namespace));
+    _ = tokens;
+    _ = tree;
+    _ = eval;
 }
