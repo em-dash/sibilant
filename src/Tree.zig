@@ -78,7 +78,6 @@ fn evalFromNode(self: *Tree, allocator: std.mem.Allocator, index: NodeIndex) !vo
     }
 }
 
-// pub fn format(value: ?, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void
 pub fn format(
     self: Tree,
     comptime fmt: []const u8,
@@ -129,7 +128,6 @@ fn recurseWriteCode(self: Tree, writer: anytype, index: NodeIndex, options: Writ
             "{s}",
             .{self.getIdentifierString(identifier)},
         ),
-        // These only appear in a tree that has been parsed.
         .builtin_add,
         .builtin_subtract,
         .builtin_divide,
