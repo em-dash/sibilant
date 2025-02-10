@@ -76,7 +76,7 @@ pub fn tokenize(allocator: std.mem.Allocator, source: []const u8) ![]Token {
                         break :token_loop;
                     } else if (gen_cat_data.isLetter(cp.code) or
                         gen_cat_data.isMark(cp.code) or
-                        gen_cat_data.isNumber(cp.code) or
+                        props_data.isDecimal(cp.code) or
                         gen_cat_data.isPunctuation(cp.code) or
                         gen_cat_data.isSymbol(cp.code))
                     {
@@ -90,9 +90,10 @@ pub fn tokenize(allocator: std.mem.Allocator, source: []const u8) ![]Token {
                 .@"continue" => if (iterator.peek()) |cp| {
                     if (gen_cat_data.isLetter(cp.code) or
                         gen_cat_data.isMark(cp.code) or
-                        gen_cat_data.isNumber(cp.code) or
+                        props_data.isDecimal(cp.code) or
                         // gen_cat_data.isPunctuation(cp.code) or
-                        gen_cat_data.isSymbol(cp.code))
+                        gen_cat_data.isSymbol(cp.code) or
+                        cp.code == '.')
                         _ = iterator.next()
                     else {
                         token.end = iterator.i;

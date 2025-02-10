@@ -13,39 +13,47 @@ const builtin_map: std.StaticStringMap(Builtin) = .initComptime(.{
     .{ "λ", .lambda },
 });
 
-pub fn eval(allocator: std.mem.Allocator, tree: *Tree, index: Tree.NodeIndex) !void {
+pub fn eval(allocator: std.mem.Allocator, tree: *Tree) !void {
+    for (tree.roots.items) |root| try evalFromRoot(allocator, tree, root);
+}
+
+fn evalFromRoot(allocator: std.mem.Allocator, tree: *Tree, index: Tree.NodeIndex) !void {
+    _ = allocator; // autofix
     // var temp_allocator = std.heap.stackFallback(64, allocator);
 
     switch (tree.getNode(index)) {
         .sexpr => |sexpr| {
-            switch (tree.getNode(sexpr.value)) {
-                .number => |_| return error.ThatTypeDoesntGoAtTheStartOfASexprBruh,
-                .string => |_| return error.ThatTypeDoesntGoAtTheStartOfASexprBruh,
-                .sexpr => |_| return error.NotImplemented,
-                .identifier => |i| {
-                    if (builtin_map.get(tree.getIdentifier(i))) |builtin| switch (builtin) {
-                        .quote => return error.NotImplemented,
-                        .add => {
-                            var sum: f64 = 0;
-                            var current = index;
-                            while (true) {
-                                current = sexpr.next;
-                                if (current != .none) {
-                                    try eval(allocator, tree, current);
-                                    switch (tree.getNode(current)) {
-                                        .identifier => |_| return error.NotImplemented,
-                                        .sexpr => |_| return error.CantEvalThisThing,
-                                        .string => |_| return error.TypeIsWrongHere,
-                                        .number => |number| sum += number,
-                                    }
-                                } else break;
-                            }
-                        },
-                        .subtract => return error.NotImplemented,
-                        .lambda => return error.NotImplemented,
-                    };
-                },
-            }
+            _ = sexpr; // autofix
+            // Evaluate each member
+
+            // switch (tree.getNode(sexpr.value)) {
+            //     .number => |_| return error.ThatTypeDoesntGoAtTheStartOfASexprBruh,
+            //     .string => |_| return error.ThatTypeDoesntGoAtTheStartOfASexprBruh,
+            //     .sexpr => |_| return error.NotImplemented,
+            //     .identifier => |i| {
+            //         if (builtin_map.get(tree.getIdentifierString(i))) |builtin| switch (builtin) {
+            //             .quote => return error.NotImplemented,
+            //             .add => {
+            //                 var sum: f64 = 0;
+            //                 var current = index;
+            //                 while (true) {
+            //                     current = sexpr.next;
+            //                     if (current != .none) {
+            //                         try evalFromRoot(allocator, tree, current);
+            //                         switch (tree.getNode(current)) {
+            //                             .identifier => |_| return error.NotImplemented,
+            //                             .sexpr => |_| return error.CantEvalThisThing,
+            //                             .string => |_| return error.TypeIsWrongHere,
+            //                             .number => |number| sum += number,
+            //                         }
+            //                     } else break;
+            //                 }
+            //             },
+            //             .subtract => return error.NotImplemented,
+            //             .lambda => return error.NotImplemented,
+            //         };
+            //     },
+            // }
         },
         .number => return,
         .string => return,
@@ -63,7 +71,7 @@ test eval {
     //     var tree = try Tree.parse(std.testing.allocator, source, tokens);
     //     defer tree.deinit();
 
-    //     try eval(std.testing.allocator, &tree, .root);
+    //     try evalFromRoot(std.testing.allocator, &tree, .root);
     //     // try std.testing.expectEqual(tree.getNode(@enumFromInt(1)).number, @as(f64, 123.0));
     // }
 }

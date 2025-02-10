@@ -1,40 +1,50 @@
 allocator: std.mem.Allocator,
 nodes: std.MultiArrayList(Node),
 identifiers: std.ArrayListUnmanaged([]const u8),
-root: NodeIndex,
+roots: std.ArrayListUnmanaged(NodeIndex),
 // strings: []?[]u8,
 
 // pub fn format(value: ?, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void
 pub fn format(
     self: Tree,
-    comptime _: []const u8,
+    comptime fmt: []const u8,
     _: std.fmt.FormatOptions,
     writer: anytype,
 ) !void {
-    var list = std.ArrayList(NodeIndex).init(self.allocator);
-    defer list.deinit();
-    try self.recurseWriteCode(&list, writer, .root);
+    var options: WriteOptions = .{};
+    if (fmt.len > 0) {
+        if (std.mem.count(u8, fmt, "t") > 0) options.type_annotation = true;
+    }
+    for (self.roots.items) |root| {
+        try self.recurseWriteCode(writer, root, options);
+    }
 }
 
-fn recurseWriteCode(self: Tree, list: *std.ArrayList(NodeIndex), writer: anytype, index: NodeIndex) !void {
-    for (list.items) |seen| {
-        if (seen == index) @panic("trying to print an AST with a loop in it");
-    } else try list.append(index);
+const WriteOptions = struct {
+    type_annotation: bool = false,
+};
+
+fn recurseWriteCode(self: Tree, writer: anytype, index: NodeIndex, options: WriteOptions) !void {
+    if (options.type_annotation and self.getNode(index) != .sexpr) {
+        _ = try writer.write("[");
+        _ = try writer.write(@tagName(self.getNode(index)));
+        _ = try writer.write("]: ");
+    }
 
     switch (self.getNode(index)) {
         .sexpr => |_| {
-            if (index != .root) _ = try writer.write("(");
+            _ = try writer.write("(");
             var current = index;
             while (true) {
-                try self.recurseWriteCode(list, writer, self.getNode(current).sexpr.value);
+                try self.recurseWriteCode(writer, self.getNode(current).sexpr.value, options);
                 if (self.getNode(current).sexpr.next != .none) {
                     _ = try writer.write(" ");
                     current = self.getNode(current).sexpr.next;
                 } else break;
             }
-            if (index != .root) _ = try writer.write(")");
+            _ = try writer.write(")");
         },
-        .number => |number| try std.fmt.format(writer, "{any}", .{number}),
+        .number => |number| try std.fmt.format(writer, "{d}", .{number}),
         .string => |_| {
             @panic("bruh");
         },
@@ -69,7 +79,7 @@ fn init(allocator: std.mem.Allocator) Tree {
         .allocator = allocator,
         .nodes = .empty,
         .identifiers = .empty,
-        .root = .none,
+        .roots = .empty,
         // .strings
     };
 }
@@ -77,6 +87,7 @@ fn init(allocator: std.mem.Allocator) Tree {
 pub fn deinit(self: *Tree) void {
     self.nodes.deinit(self.allocator);
     self.identifiers.deinit(self.allocator);
+    self.roots.deinit(self.allocator);
     // self.allocator.free(self.strings);
 }
 
@@ -97,7 +108,7 @@ pub fn addNode(self: *Tree, item: Node) !NodeIndex {
 
 pub const StringIndex = enum(u32) { _ };
 pub const NodeIndex = enum(u32) {
-    root = 0,
+    // root = 0,
     none = std.math.maxInt(u32),
     _,
 
@@ -112,8 +123,16 @@ pub const Sexpr = struct {
     const empty: Sexpr = .{ .value = .none, .next = .none };
 };
 
+pub const SexprTail = struct {
+    value: NodeIndex,
+    next: NodeIndex,
+
+    const empty: SexprTail = .{ .value = .none, .next = .none };
+};
+
 pub const Node = union(enum) {
     sexpr: Sexpr,
+    sexpr_tail: SexprTail,
     number: f64,
     string: StringIndex,
     identifier: IdentifierIndex,
@@ -151,35 +170,28 @@ fn recurseSexprs(
     tree: *Tree,
 ) !NodeIndex {
     const token = if (iterator.next()) |t| t else return error.UnexpectedEof;
-    std.log.debug("parsing... token.tag == {any}", .{token.tag});
+    // std.log.debug("parsing... on a {s}", .{@tagName(token.tag)});
     switch (token.tag) {
         .open => {
             const root = try tree.addNode(.{ .sexpr = .{ .value = undefined, .next = .none } });
-            tree.nodes.slice().items(.data)[@intFromEnum(root)].sexpr.value =
-                try recurseSexprs(source, iterator, tree);
+            {
+                // Keep this in two lines to avoid writing to an invalid pointer.
+                const value = try recurseSexprs(source, iterator, tree);
+                tree.nodes.slice().items(.data)[@intFromEnum(root)].sexpr.value = value;
+            }
 
             var current = root;
             while (iterator.peek()) |t| {
-                std.debug.print("=========================================================\n", .{});
                 if (t.tag == .close) {
                     _ = iterator.next();
                     break;
                 }
                 const next = try tree.addNode(.{ .sexpr = .{ .value = undefined, .next = .none } });
-                // tree.nodes.slice().items(.data)[@intFromEnum(current)].sexpr.next = next;
-                {
-                    var temp = tree.getNode(current);
-                    temp.sexpr.next = next;
-                    tree.setNode(current, temp);
-                }
+                tree.nodes.slice().items(.data)[@intFromEnum(current)].sexpr.next = next;
                 current = next;
-                // tree.nodes.slice().items(.data)[@intFromEnum(current)].sexpr.value =
-                //     try recurseSexprs(source, iterator, tree);
-                {
-                    var temp = tree.getNode(current);
-                    temp.sexpr.value = try recurseSexprs(source, iterator, tree);
-                    tree.setNode(current, temp);
-                }
+                // Same realloc danger as above.
+                const value = try recurseSexprs(source, iterator, tree);
+                tree.nodes.slice().items(.data)[@intFromEnum(current)].sexpr.value = value;
             } else return error.UnexpectedEof;
             return root;
         },
@@ -214,24 +226,14 @@ pub fn parse(
     var iterator: TokenIterator = .{ .slice = tokens };
 
     if (tokens.len == 0) {
-        tree.root = try tree.addNode(.{ .sexpr = .{ .value = .none, .next = .none } });
         return tree;
     }
 
-    const root = try tree.addNode(.{ .sexpr = .{ .value = undefined, .next = .none } });
-    tree.nodes.slice().items(.data)[@intFromEnum(root)].sexpr.value =
-        try recurseSexprs(source, &iterator, &tree);
-
-    var current = root;
     while (iterator.peek()) |_| {
-        const next = try tree.addNode(.{ .sexpr = .{ .value = undefined, .next = .none } });
-        tree.nodes.slice().items(.data)[@intFromEnum(current)].sexpr.next = next;
-        current = next;
-        tree.nodes.slice().items(.data)[@intFromEnum(current)].sexpr.value =
-            try recurseSexprs(source, &iterator, &tree);
+        const root = try recurseSexprs(source, &iterator, &tree);
+        try tree.roots.append(allocator, root);
     }
 
-    tree.root = root;
     return tree;
 }
 

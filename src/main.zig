@@ -1,18 +1,20 @@
 pub fn main() !u8 {
+    const stdout = std.io.getStdOut().writer();
+
     var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
     const allocator = gpa.allocator();
     defer _ = gpa.deinit();
 
-    const source = "(add 123 123 123 123  234 3 4 234 12 3 123 123  234 235)";
-    // const source = "(add 123 123)";
+    // const source = "(bork (1.5 2.5 3) (a b c d e) (lmao (lol (mdr))))";
+    const source = "(add 1 2 92.1)";
     const tokens = try tokenization.tokenize(allocator, source);
     defer allocator.free(tokens);
     var tree = try Tree.parse(allocator, source, tokens);
     defer tree.deinit();
 
-    std.debug.print("{any}\n", .{tree.getNode(.root)});
-    // std.debug.print("{any}\n", .{tree.nodes.items(.data).len});
-    // try std.io.getStdOut().writer().print("{any}\n", .{tree});
+    try stdout.print("input: {}\n", .{tree});
+    try eval.eval(allocator, &tree);
+    try stdout.print("evaluation: {any}\n", .{tree});
 
     return 0;
 }
