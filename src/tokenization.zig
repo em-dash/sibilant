@@ -27,6 +27,8 @@ fn isNumber(word: []const u8, props_data: PropsData) bool {
     }
     {
         var iterator = code_point.Iterator{ .bytes = word };
+        if (iterator.peek().?.code == '-' or iterator.peek().?.code == '+')
+            _ = iterator.next();
         var point_count: u32 = 0;
         while (iterator.next()) |cp| {
             if (cp.code == '.') {
