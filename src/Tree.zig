@@ -6,9 +6,13 @@ roots: std.ArrayListUnmanaged(NodeIndex),
 
 const builtin_map: std.StaticStringMap(Node) = .initComptime(.{
     .{ "add", .builtin_add },
+    .{ "+", .builtin_add },
     .{ "subtract", .builtin_subtract },
+    .{ "-", .builtin_subtract },
     .{ "multiply", .builtin_multiply },
+    .{ "*", .builtin_multiply },
     .{ "divide", .builtin_divide },
+    .{ "/", .builtin_divide },
     .{ "quote", .builtin_quote },
     .{ "lambda", .builtin_lambda },
     .{ "λ", .builtin_lambda },
