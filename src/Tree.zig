@@ -25,25 +25,27 @@ const WriteOptions = struct {
 };
 
 fn recurseWriteCode(self: Tree, writer: anytype, index: NodeIndex, options: WriteOptions) !void {
-    if (options.type_annotation and self.getNode(index) != .sexpr) {
+    if (options.type_annotation and self.getNode(index) != .sexpr_head) {
         _ = try writer.write("[");
         _ = try writer.write(@tagName(self.getNode(index)));
         _ = try writer.write("]: ");
     }
 
-    switch (self.getNode(index)) {
-        .sexpr => |_| {
+    const node = self.getNode(index);
+    switch (node) {
+        .sexpr_head => |_| {
             _ = try writer.write("(");
             var current = index;
-            while (true) {
-                try self.recurseWriteCode(writer, self.getNode(current).sexpr.value, options);
-                if (self.getNode(current).sexpr.next != .none) {
-                    _ = try writer.write(" ");
-                    current = self.getNode(current).sexpr.next;
-                } else break;
+            try self.recurseWriteCode(writer, self.getNode(current).sexpr_head.value, options);
+            current = self.getNode(current).sexpr_head.next;
+            while (current != .none) {
+                _ = try writer.write(" ");
+                try self.recurseWriteCode(writer, self.getNode(current).sexpr_tail.value, options);
+                current = self.getNode(current).sexpr_tail.next;
             }
             _ = try writer.write(")");
         },
+        .sexpr_tail => |_| unreachable,
         .number => |number| try std.fmt.format(writer, "{d}", .{number}),
         .string => |_| {
             @panic("bruh");
@@ -53,6 +55,17 @@ fn recurseWriteCode(self: Tree, writer: anytype, index: NodeIndex, options: Writ
             "{s}",
             .{self.getIdentifierString(identifier)},
         ),
+        // These only appear in a tree that has been parsed.
+        .builtin_add,
+        .builtin_subtract,
+        .builtin_divide,
+        .builtin_multiply,
+        .builtin_quote,
+        .builtin_lambda,
+        => {
+            const tag_name = @tagName(node);
+            try std.fmt.format(writer, "{s}", .{tag_name[8..]});
+        },
     }
 }
 
@@ -116,11 +129,11 @@ pub const NodeIndex = enum(u32) {
 };
 pub const IdentifierIndex = enum(u32) { _ };
 
-pub const Sexpr = struct {
+pub const SexprHead = struct {
     value: NodeIndex,
     next: NodeIndex,
 
-    const empty: Sexpr = .{ .value = .none, .next = .none };
+    const empty: SexprHead = .{ .value = .none, .next = .none };
 };
 
 pub const SexprTail = struct {
@@ -131,11 +144,18 @@ pub const SexprTail = struct {
 };
 
 pub const Node = union(enum) {
-    sexpr: Sexpr,
+    sexpr_head: SexprHead,
     sexpr_tail: SexprTail,
     number: f64,
     string: StringIndex,
     identifier: IdentifierIndex,
+
+    builtin_add,
+    builtin_subtract,
+    builtin_multiply,
+    builtin_divide,
+    builtin_quote,
+    builtin_lambda,
 
     const empty_sexpr: Node = .{ .sexpr = .empty };
 
@@ -164,20 +184,22 @@ const TokenIterator = struct {
     }
 };
 
-fn recurseSexprs(
+fn recurseParse(
     source: []const u8,
     iterator: *TokenIterator,
     tree: *Tree,
 ) !NodeIndex {
     const token = if (iterator.next()) |t| t else return error.UnexpectedEof;
-    // std.log.debug("parsing... on a {s}", .{@tagName(token.tag)});
     switch (token.tag) {
         .open => {
-            const root = try tree.addNode(.{ .sexpr = .{ .value = undefined, .next = .none } });
+            const root = try tree.addNode(
+                .{ .sexpr_head = .{ .value = undefined, .next = .none } },
+            );
             {
-                // Keep this in two lines to avoid writing to an invalid pointer.
-                const value = try recurseSexprs(source, iterator, tree);
-                tree.nodes.slice().items(.data)[@intFromEnum(root)].sexpr.value = value;
+                // Use an intermediate to avoid writing to an invalidated pointer after a potential
+                // realloc.
+                const value = try recurseParse(source, iterator, tree);
+                tree.nodes.slice().items(.data)[@intFromEnum(root)].sexpr_head.value = value;
             }
 
             var current = root;
@@ -186,12 +208,17 @@ fn recurseSexprs(
                     _ = iterator.next();
                     break;
                 }
-                const next = try tree.addNode(.{ .sexpr = .{ .value = undefined, .next = .none } });
-                tree.nodes.slice().items(.data)[@intFromEnum(current)].sexpr.next = next;
+                const next = try tree.addNode(
+                    .{ .sexpr_tail = .{ .value = undefined, .next = .none } },
+                );
+                if (tree.getNode(current) == .sexpr_head)
+                    tree.nodes.slice().items(.data)[@intFromEnum(current)].sexpr_head.next = next
+                else
+                    tree.nodes.slice().items(.data)[@intFromEnum(current)].sexpr_tail.next = next;
                 current = next;
                 // Same realloc danger as above.
-                const value = try recurseSexprs(source, iterator, tree);
-                tree.nodes.slice().items(.data)[@intFromEnum(current)].sexpr.value = value;
+                const value = try recurseParse(source, iterator, tree);
+                tree.nodes.slice().items(.data)[@intFromEnum(current)].sexpr_tail.value = value;
             } else return error.UnexpectedEof;
             return root;
         },
@@ -230,7 +257,7 @@ pub fn parse(
     }
 
     while (iterator.peek()) |_| {
-        const root = try recurseSexprs(source, &iterator, &tree);
+        const root = try recurseParse(source, &iterator, &tree);
         try tree.roots.append(allocator, root);
     }
 
@@ -238,7 +265,6 @@ pub fn parse(
 }
 
 test parse {
-    // const source = "(add 420 69 (lol lmao))";
     const source = "(add 123 123 12 3235 345 324)";
     const tokens = try tokenization.tokenize(std.testing.allocator, source);
     defer std.testing.allocator.free(tokens);

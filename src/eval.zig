@@ -1,65 +1,70 @@
-const Builtin = enum {
-    quote,
-    add,
-    subtract,
-    lambda,
-};
-
-const builtin_map: std.StaticStringMap(Builtin) = .initComptime(.{
-    .{ "quote", .quote },
-    .{ "add", .add },
-    .{ "subtract", .subtract },
-    .{ "lambda", .lambda },
-    .{ "λ", .lambda },
+const builtin_map: std.StaticStringMap(Tree.Node) = .initComptime(.{
+    .{ "add", .builtin_add },
+    .{ "subtract", .builtin_subtract },
+    .{ "multiply", .builtin_multiply },
+    .{ "divide", .builtin_divide },
+    .{ "quote", .builtin_quote },
+    .{ "lambda", .builtin_lambda },
+    .{ "λ", .builtin_lambda },
 });
 
 pub fn eval(allocator: std.mem.Allocator, tree: *Tree) !void {
-    for (tree.roots.items) |root| try evalFromRoot(allocator, tree, root);
+    for (tree.roots.items) |root| try evalFromNode(allocator, tree, root);
 }
 
-fn evalFromRoot(allocator: std.mem.Allocator, tree: *Tree, index: Tree.NodeIndex) !void {
-    _ = allocator; // autofix
+fn evalFromNode(allocator: std.mem.Allocator, tree: *Tree, index: Tree.NodeIndex) !void {
     // var temp_allocator = std.heap.stackFallback(64, allocator);
 
     switch (tree.getNode(index)) {
-        .sexpr => |sexpr| {
-            _ = sexpr; // autofix
-            // Evaluate each member
+        .sexpr_head => |sexpr_head| {
+            {
+                try evalFromNode(allocator, tree, sexpr_head.value);
+                var current = sexpr_head.next;
+                while (current != .none) {
+                    const node = tree.getNode(current);
+                    try evalFromNode(allocator, tree, node.sexpr_tail.value);
+                    current = node.sexpr_tail.next;
+                }
+            }
 
-            // switch (tree.getNode(sexpr.value)) {
-            //     .number => |_| return error.ThatTypeDoesntGoAtTheStartOfASexprBruh,
-            //     .string => |_| return error.ThatTypeDoesntGoAtTheStartOfASexprBruh,
-            //     .sexpr => |_| return error.NotImplemented,
-            //     .identifier => |i| {
-            //         if (builtin_map.get(tree.getIdentifierString(i))) |builtin| switch (builtin) {
-            //             .quote => return error.NotImplemented,
-            //             .add => {
-            //                 var sum: f64 = 0;
-            //                 var current = index;
-            //                 while (true) {
-            //                     current = sexpr.next;
-            //                     if (current != .none) {
-            //                         try evalFromRoot(allocator, tree, current);
-            //                         switch (tree.getNode(current)) {
-            //                             .identifier => |_| return error.NotImplemented,
-            //                             .sexpr => |_| return error.CantEvalThisThing,
-            //                             .string => |_| return error.TypeIsWrongHere,
-            //                             .number => |number| sum += number,
-            //                         }
-            //                     } else break;
-            //                 }
-            //             },
-            //             .subtract => return error.NotImplemented,
-            //             .lambda => return error.NotImplemented,
-            //         };
-            //     },
-            // }
+            const new_head = tree.getNode(index).sexpr_head;
+            switch (tree.getNode(new_head.value)) {
+                .builtin_add => {
+                    var current = new_head.next;
+                    var sum: f64 = 0;
+                    while (current != .none) {
+                        const node = tree.getNode(current).sexpr_tail;
+                        const summand = tree.getNode(node.value);
+                        if (summand == .number)
+                            sum += summand.number
+                        else
+                            return error.TypeError;
+                        current = node.next;
+                    }
+                    tree.setNode(index, .{ .number = sum });
+                },
+                else => return error.NotImplemented,
+            }
         },
-        .number => return,
-        .string => return,
-        .identifier => {
-            @panic("lol");
+        .sexpr_tail => unreachable,
+        .number => {},
+        .string => {},
+        .identifier => |identifier| {
+            // If this is a bulitin, set it.
+            const string = tree.getIdentifierString(identifier);
+            if (builtin_map.get(string)) |builtin|
+                tree.setNode(index, builtin)
+            else
+                return error.NotImplemented;
         },
+        // These only appear in a branch that has already been parsed.
+        .builtin_add,
+        .builtin_subtract,
+        .builtin_divide,
+        .builtin_multiply,
+        .builtin_quote,
+        .builtin_lambda,
+        => unreachable,
     }
 }
 
