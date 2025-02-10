@@ -1,15 +1,73 @@
 allocator: std.mem.Allocator,
 nodes: std.MultiArrayList(Node),
-identifiers: IdentifierMap,
+identifiers: std.ArrayListUnmanaged([]const u8),
 root: NodeIndex,
 // strings: []?[]u8,
+
+// pub fn format(value: ?, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void
+pub fn format(
+    self: Tree,
+    comptime _: []const u8,
+    _: std.fmt.FormatOptions,
+    writer: anytype,
+) !void {
+    var list = std.ArrayList(NodeIndex).init(self.allocator);
+    defer list.deinit();
+    try self.recurseWriteCode(&list, writer, .root);
+}
+
+fn recurseWriteCode(self: Tree, list: *std.ArrayList(NodeIndex), writer: anytype, index: NodeIndex) !void {
+    for (list.items) |seen| {
+        if (seen == index) @panic("trying to print an AST with a loop in it");
+    } else try list.append(index);
+
+    switch (self.getNode(index)) {
+        .sexpr => |_| {
+            if (index != .root) _ = try writer.write("(");
+            var current = index;
+            while (true) {
+                try self.recurseWriteCode(list, writer, self.getNode(current).sexpr.value);
+                if (self.getNode(current).sexpr.next != .none) {
+                    _ = try writer.write(" ");
+                    current = self.getNode(current).sexpr.next;
+                } else break;
+            }
+            if (index != .root) _ = try writer.write(")");
+        },
+        .number => |number| try std.fmt.format(writer, "{any}", .{number}),
+        .string => |_| {
+            @panic("bruh");
+        },
+        .identifier => |identifier| try std.fmt.format(
+            writer,
+            "{s}",
+            .{self.getIdentifierString(identifier)},
+        ),
+    }
+}
+
+fn getOrPutIdentifier(
+    self: *Tree,
+    string: []const u8,
+) !IdentifierIndex {
+    for (self.identifiers.items, 0..) |item, index| {
+        if (std.mem.eql(u8, string, item)) return @enumFromInt(index);
+    } else {
+        try self.identifiers.append(self.allocator, string);
+        return @enumFromInt(self.identifiers.items.len - 1);
+    }
+}
+
+pub fn getIdentifierString(self: Tree, index: IdentifierIndex) []const u8 {
+    return self.identifiers.items[@intFromEnum(index)];
+}
 
 const Tree = @This();
 
 fn init(allocator: std.mem.Allocator) Tree {
     return .{
         .allocator = allocator,
-        .nodes = .{},
+        .nodes = .empty,
         .identifiers = .empty,
         .root = .none,
         // .strings
@@ -27,6 +85,8 @@ pub fn setNode(self: *Tree, index: NodeIndex, element: Node) void {
 }
 
 pub fn getNode(self: Tree, index: NodeIndex) Node {
+    std.debug.assert(index != .none);
+    std.debug.assert(@intFromEnum(index) < self.nodes.items(.data).len);
     return self.nodes.get(@intFromEnum(index));
 }
 
@@ -37,39 +97,13 @@ pub fn addNode(self: *Tree, item: Node) !NodeIndex {
 
 pub const StringIndex = enum(u32) { _ };
 pub const NodeIndex = enum(u32) {
+    root = 0,
     none = std.math.maxInt(u32),
     _,
 
-    const root: NodeIndex = @enumFromInt(0);
+    // const root: NodeIndex = @enumFromInt(0);
 };
 pub const IdentifierIndex = enum(u32) { _ };
-
-const IdentifierMap = struct {
-    hashmap: std.StringHashMapUnmanaged(u32),
-    next: u32,
-
-    const empty: IdentifierMap = .{ .hashmap = .empty, .next = 0 };
-
-    fn getOrPut(
-        self: *IdentifierMap,
-        allocator: std.mem.Allocator,
-        key: []const u8,
-    ) !IdentifierIndex {
-        const maybe_index = self.hashmap.get(key);
-        if (maybe_index) |index| {
-            return @enumFromInt(index);
-        } else {
-            try self.hashmap.put(allocator, key, self.next);
-            const result = self.next;
-            self.next += 1;
-            return @enumFromInt(result);
-        }
-    }
-
-    fn deinit(self: *IdentifierMap, allocator: std.mem.Allocator) void {
-        self.hashmap.deinit(allocator);
-    }
-};
 
 pub const Sexpr = struct {
     value: NodeIndex,
@@ -117,6 +151,7 @@ fn recurseSexprs(
     tree: *Tree,
 ) !NodeIndex {
     const token = if (iterator.next()) |t| t else return error.UnexpectedEof;
+    std.log.debug("parsing... token.tag == {any}", .{token.tag});
     switch (token.tag) {
         .open => {
             const root = try tree.addNode(.{ .sexpr = .{ .value = undefined, .next = .none } });
@@ -125,15 +160,26 @@ fn recurseSexprs(
 
             var current = root;
             while (iterator.peek()) |t| {
+                std.debug.print("=========================================================\n", .{});
                 if (t.tag == .close) {
                     _ = iterator.next();
                     break;
                 }
                 const next = try tree.addNode(.{ .sexpr = .{ .value = undefined, .next = .none } });
-                tree.nodes.slice().items(.data)[@intFromEnum(current)].sexpr.next = next;
+                // tree.nodes.slice().items(.data)[@intFromEnum(current)].sexpr.next = next;
+                {
+                    var temp = tree.getNode(current);
+                    temp.sexpr.next = next;
+                    tree.setNode(current, temp);
+                }
                 current = next;
-                tree.nodes.slice().items(.data)[@intFromEnum(current)].sexpr.value =
-                    try recurseSexprs(source, iterator, tree);
+                // tree.nodes.slice().items(.data)[@intFromEnum(current)].sexpr.value =
+                //     try recurseSexprs(source, iterator, tree);
+                {
+                    var temp = tree.getNode(current);
+                    temp.sexpr.value = try recurseSexprs(source, iterator, tree);
+                    tree.setNode(current, temp);
+                }
             } else return error.UnexpectedEof;
             return root;
         },
@@ -149,10 +195,7 @@ fn recurseSexprs(
             return node;
         },
         .identifier => {
-            const identifier = try tree.identifiers.getOrPut(
-                tree.allocator,
-                source[token.start..token.end],
-            );
+            const identifier = try tree.getOrPutIdentifier(source[token.start..token.end]);
             const node = try tree.addNode(.{ .identifier = identifier });
             return node;
         },
@@ -193,13 +236,14 @@ pub fn parse(
 }
 
 test parse {
-    const source = "(lol lmao)";
+    // const source = "(add 420 69 (lol lmao))";
+    const source = "(add 123 123 12 3235 345 324)";
     const tokens = try tokenization.tokenize(std.testing.allocator, source);
     defer std.testing.allocator.free(tokens);
     var tree = try parse(std.testing.allocator, source, tokens);
     defer tree.deinit();
 
-    return error.lol;
+    try std.io.getStdOut().writer().print("{any}\n", .{tree});
 }
 
 const std = @import("std");

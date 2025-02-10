@@ -32,7 +32,7 @@ fn isNumber(word: []const u8, props_data: PropsData) bool {
             if (cp.code == '.') {
                 point_count += 1;
                 if (point_count > 1) return false;
-            } else if (!(props_data.isDigit(cp.code) or cp.code == '_')) return false;
+            } else if (!(props_data.isDecimal(cp.code) or cp.code == '_')) return false;
         } else return true;
     }
 }
