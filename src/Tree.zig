@@ -4,6 +4,76 @@ identifiers: std.ArrayListUnmanaged([]const u8),
 roots: std.ArrayListUnmanaged(NodeIndex),
 // strings: []?[]u8,
 
+const builtin_map: std.StaticStringMap(Node) = .initComptime(.{
+    .{ "add", .builtin_add },
+    .{ "subtract", .builtin_subtract },
+    .{ "multiply", .builtin_multiply },
+    .{ "divide", .builtin_divide },
+    .{ "quote", .builtin_quote },
+    .{ "lambda", .builtin_lambda },
+    .{ "λ", .builtin_lambda },
+});
+
+pub fn eval(self: *Tree, allocator: std.mem.Allocator) !void {
+    for (self.roots.items) |root| try self.evalFromNode(allocator, root);
+}
+
+fn evalFromNode(self: *Tree, allocator: std.mem.Allocator, index: NodeIndex) !void {
+    // var temp_allocator = std.heap.stackFallback(64, allocator);
+
+    switch (self.getNode(index)) {
+        .sexpr_head => |sexpr_head| {
+            {
+                try self.evalFromNode(allocator, sexpr_head.value);
+                var current = sexpr_head.next;
+                while (current != .none) {
+                    const node = self.getNode(current);
+                    try self.evalFromNode(allocator, node.sexpr_tail.value);
+                    current = node.sexpr_tail.next;
+                }
+            }
+
+            const new_head = self.getNode(index).sexpr_head;
+            switch (self.getNode(new_head.value)) {
+                .builtin_add => {
+                    var current = new_head.next;
+                    var sum: f64 = 0;
+                    while (current != .none) {
+                        const node = self.getNode(current).sexpr_tail;
+                        const summand = self.getNode(node.value);
+                        if (summand == .number)
+                            sum += summand.number
+                        else
+                            return error.TypeError;
+                        current = node.next;
+                    }
+                    self.setNode(index, .{ .number = sum });
+                },
+                else => return error.NotImplemented,
+            }
+        },
+        .sexpr_tail => unreachable,
+        .number => {},
+        .string => {},
+        .identifier => |identifier| {
+            // If this is a bulitin, set it.
+            const string = self.getIdentifierString(identifier);
+            if (builtin_map.get(string)) |builtin|
+                self.setNode(index, builtin)
+            else
+                return error.NotImplemented;
+        },
+        // These only appear in a branch that has already been parsed.
+        .builtin_add,
+        .builtin_subtract,
+        .builtin_divide,
+        .builtin_multiply,
+        .builtin_quote,
+        .builtin_lambda,
+        => unreachable,
+    }
+}
+
 // pub fn format(value: ?, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void
 pub fn format(
     self: Tree,

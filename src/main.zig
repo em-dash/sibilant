@@ -14,7 +14,7 @@ pub fn main() !u8 {
     defer tree.deinit();
 
     try stdout.print("input: {}\n", .{tree});
-    try eval.eval(allocator, &tree);
+    try tree.eval(allocator);
     try stdout.print("evaluation: {any}\n", .{tree});
 
     return 0;
@@ -24,11 +24,9 @@ const std = @import("std");
 
 const tokenization = @import("tokenization.zig");
 const Tree = @import("Tree.zig");
-const eval = @import("eval.zig");
 
 test {
     // std.testing.refAllDeclsRecursive(@This());
     _ = @import("tokenization.zig");
     _ = @import("Tree.zig");
-    _ = @import("eval.zig");
 }
