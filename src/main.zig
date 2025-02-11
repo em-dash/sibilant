@@ -6,8 +6,8 @@ pub fn main() !u8 {
     defer _ = gpa.deinit();
 
     // const source = "(bork (1.5 2.5 3) (a b c d e) (lmao (lol (mdr))))";
-    const source = "(add 1 2 -5)";
-    // const source = "(add 5 (add 3 1))";
+    // const source = "(add 1 2 -5)";
+    const source = "(add 5 (multiply 3 8))";
     const tokens = try tokenization.tokenize(allocator, source);
     defer allocator.free(tokens);
     var tree = try Tree.parse(allocator, source, tokens);

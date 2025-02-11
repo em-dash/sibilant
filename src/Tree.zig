@@ -53,7 +53,25 @@ fn evalFromNode(self: *Tree, allocator: std.mem.Allocator, index: NodeIndex) !vo
                     }
                     self.setNode(index, .{ .number = sum });
                 },
-                else => return error.NotImplemented,
+                .builtin_subtract => {},
+                .builtin_multiply => {
+                    var current = new_head.next;
+                    var product: f64 = 1;
+                    while (current != .none) {
+                        const node = self.getNode(current).sexpr_tail;
+                        const multiplicand = self.getNode(node.value);
+                        if (multiplicand == .number)
+                            product *= multiplicand.number
+                        else
+                            return error.TypeError;
+                        current = node.next;
+                    }
+                    self.setNode(index, .{ .number = product });
+                },
+                .builtin_divide => {},
+                .builtin_quote => return error.NotImplemented,
+                .builtin_lambda => return error.NotImplemented,
+                else => unreachable,
             }
         },
         .sexpr_tail => unreachable,
