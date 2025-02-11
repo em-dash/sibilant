@@ -16,6 +16,8 @@ pub const Token = struct {
 
 fn isNumber(word: []const u8, props_data: PropsData) bool {
     if (std.mem.eql(u8, word, ".")) return false;
+    if (std.mem.eql(u8, word, "-")) return false;
+    if (std.mem.eql(u8, word, "+")) return false;
     if (word.len >= 3) {
         if (std.mem.eql(u8, "0x", word[0..2])) {
             var iterator = code_point.Iterator{ .bytes = word[2..] };

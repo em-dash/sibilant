@@ -18,29 +18,42 @@ const builtin_map: std.StaticStringMap(Node) = .initComptime(.{
     .{ "λ", .builtin_lambda },
 });
 
-pub fn eval(self: *Tree, allocator: std.mem.Allocator) !void {
+const EvalError = error{
+    DivideByZero,
+    NotImplemented,
+    TypeError,
+    IncorrectArgumentCount,
+};
+
+pub fn eval(self: *Tree, allocator: std.mem.Allocator) EvalError!void {
     for (self.roots.items) |root| try self.evalFromNode(allocator, root);
 }
 
-fn evalFromNode(self: *Tree, allocator: std.mem.Allocator, index: NodeIndex) !void {
+fn evalTheRestOfTheFuckingSexpr(
+    self: *Tree,
+    allocator: std.mem.Allocator,
+    index: NodeIndex,
+) EvalError!void {
+    const head = self.getNode(index).sexpr_head;
+    var current = head.next;
+    while (current != .none) {
+        const node = self.getNode(current);
+        try self.evalFromNode(allocator, node.sexpr_tail.value);
+        current = node.sexpr_tail.next;
+    }
+}
+
+fn evalFromNode(self: *Tree, allocator: std.mem.Allocator, index: NodeIndex) EvalError!void {
     // var temp_allocator = std.heap.stackFallback(64, allocator);
 
     switch (self.getNode(index)) {
         .sexpr_head => |sexpr_head| {
-            {
-                try self.evalFromNode(allocator, sexpr_head.value);
-                var current = sexpr_head.next;
-                while (current != .none) {
-                    const node = self.getNode(current);
-                    try self.evalFromNode(allocator, node.sexpr_tail.value);
-                    current = node.sexpr_tail.next;
-                }
-            }
+            try self.evalFromNode(allocator, sexpr_head.value);
 
-            const new_head = self.getNode(index).sexpr_head;
-            switch (self.getNode(new_head.value)) {
+            switch (self.getNode(sexpr_head.value)) {
                 .builtin_add => {
-                    var current = new_head.next;
+                    try self.evalTheRestOfTheFuckingSexpr(allocator, index);
+                    var current = sexpr_head.next;
                     var sum: f64 = 0;
                     while (current != .none) {
                         const node = self.getNode(current).sexpr_tail;
@@ -53,9 +66,34 @@ fn evalFromNode(self: *Tree, allocator: std.mem.Allocator, index: NodeIndex) !vo
                     }
                     self.setNode(index, .{ .number = sum });
                 },
-                .builtin_subtract => {},
+                .builtin_subtract => {
+                    try self.evalTheRestOfTheFuckingSexpr(allocator, index);
+                    var current = sexpr_head.next;
+                    var difference: f64 = 0;
+                    // First argument is added rather than subtracted.
+                    if (current != .none) {
+                        const node = self.getNode(current).sexpr_tail;
+                        const subtrahend = self.getNode(node.value);
+                        if (subtrahend == .number)
+                            difference += subtrahend.number
+                        else
+                            return error.TypeError;
+                        current = node.next;
+                    }
+                    while (current != .none) {
+                        const node = self.getNode(current).sexpr_tail;
+                        const subtrahend = self.getNode(node.value);
+                        if (subtrahend == .number)
+                            difference -= subtrahend.number
+                        else
+                            return error.TypeError;
+                        current = node.next;
+                    }
+                    self.setNode(index, .{ .number = difference });
+                },
                 .builtin_multiply => {
-                    var current = new_head.next;
+                    try self.evalTheRestOfTheFuckingSexpr(allocator, index);
+                    var current = sexpr_head.next;
                     var product: f64 = 1;
                     while (current != .none) {
                         const node = self.getNode(current).sexpr_tail;
@@ -68,8 +106,38 @@ fn evalFromNode(self: *Tree, allocator: std.mem.Allocator, index: NodeIndex) !vo
                     }
                     self.setNode(index, .{ .number = product });
                 },
-                .builtin_divide => {},
-                .builtin_quote => return error.NotImplemented,
+                .builtin_divide => {
+                    try self.evalTheRestOfTheFuckingSexpr(allocator, index);
+                    var current = sexpr_head.next;
+                    var quotient: f64 = 1;
+                    // First argument is multiplied rather than divided.
+                    if (current != .none) {
+                        const node = self.getNode(current).sexpr_tail;
+                        const numerator = self.getNode(node.value);
+                        if (numerator == .number)
+                            quotient *= numerator.number
+                        else
+                            return error.TypeError;
+                        current = node.next;
+                    }
+                    while (current != .none) {
+                        const node = self.getNode(current).sexpr_tail;
+                        const denominator = self.getNode(node.value);
+                        if (denominator == .number) {
+                            if (denominator.number == 0) return error.DivideByZero;
+                            quotient /= denominator.number;
+                        } else return error.TypeError;
+                        current = node.next;
+                    }
+                    self.setNode(index, .{ .number = quotient });
+                },
+                .builtin_quote => {
+                    if (sexpr_head.next == .none) return error.IncorrectArgumentCount;
+                    const next = self.getNode(sexpr_head.next);
+                    if (next.sexpr_tail.next != .none) return error.IncorrectArgumentCount;
+                    const quoted = self.getNode(next.sexpr_tail.value);
+                    self.setNode(index, quoted);
+                },
                 .builtin_lambda => return error.NotImplemented,
                 else => unreachable,
             }
