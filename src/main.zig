@@ -8,8 +8,9 @@ pub fn main() !u8 {
     // const source = "(bork (1.5 2.5 3) (a b c d e) (lmao (lol (mdr))))";
     // const source = "(/ (+ 1 (- 6 3)) 2 (* 3 6))";
     // const source = "(quote (add 5 (multiply 3 8)))";
-    // const source = "(* (+ (*) (*)) (+ (*) (*) (*)))";
-    const source = "(quote (a b c d e f))";
+    // const source = "(quote (* (+ (*) (*)) (+ (*) (*) (*))))";
+    // const source = "(quote (a b c d e f))";
+    const source = "((lambda (a) (multiply a a)) 5)" ++ "((lambda (a b c) (add (multiply a b) c)) 4 5 3)";
     const tokens = try tokenization.tokenize(allocator, source);
     defer allocator.free(tokens);
     var tree = try Tree.parse(allocator, source, tokens);

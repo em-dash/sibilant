@@ -23,29 +23,115 @@ const EvalError = error{
     NotImplemented,
     TypeError,
     IncorrectArgumentCount,
+} || std.mem.Allocator.Error;
+
+const SexprIterator = struct {
+    tree: *const Tree,
+    node: NodeIndex,
+
+    fn peek(self: SexprIterator) ?Node {
+        if (self.node == .none) return null;
+
+        const node = self.tree.getNode(self.node);
+        switch (node) {
+            inline .sexpr_head, .sexpr_tail => |item| {
+                return self.tree.getNode(item.value);
+            },
+            else => unreachable,
+        }
+    }
+
+    fn peekIndex(self: SexprIterator) ?NodeIndex {
+        if (self.node == .none) return null;
+
+        const node = self.tree.getNode(self.node);
+        switch (node) {
+            inline .sexpr_head, .sexpr_tail => |item| return item.value,
+            else => unreachable,
+        }
+    }
+
+    fn next(self: *SexprIterator) ?Node {
+        if (self.node == .none) return null;
+
+        const node = self.tree.getNode(self.node);
+        switch (node) {
+            inline .sexpr_head, .sexpr_tail => |item| {
+                const result = self.tree.getNode(item.value);
+                self.node = item.next;
+                return result;
+            },
+            else => unreachable,
+        }
+    }
+
+    fn nextIndex(self: *SexprIterator) ?NodeIndex {
+        if (self.node == .none) return null;
+
+        const node = self.tree.getNode(self.node);
+        switch (node) {
+            inline .sexpr_head, .sexpr_tail => |item| {
+                const result = item.value;
+                self.node = item.next;
+                return result;
+            },
+            else => unreachable,
+        }
+    }
 };
 
+/// Evaluate the AST in place.  Requires an allocator for some operations but cleans up after
+/// itself; any permanent memory will be allocated with `self.allocator` and cleaned up with
+/// `.deinit()`.
 pub fn eval(self: *Tree, allocator: std.mem.Allocator) EvalError!void {
     for (self.roots.items) |root| try self.evalFromNode(allocator, root);
 }
 
+/// Evaluates an S-Expression from the second item onwards; does not effect the head.
 fn evalTheRestOfTheFuckingSexpr(
     self: *Tree,
     allocator: std.mem.Allocator,
     index: NodeIndex,
 ) EvalError!void {
-    const head = self.getNode(index).sexpr_head;
-    var current = head.next;
-    while (current != .none) {
-        const node = self.getNode(current);
-        try self.evalFromNode(allocator, node.sexpr_tail.value);
-        current = node.sexpr_tail.next;
+    var iterator: SexprIterator = .{ .tree = self, .node = index };
+    _ = iterator.next(); // Skip the head.
+    while (iterator.nextIndex()) |node| try self.evalFromNode(allocator, node);
+}
+
+fn recurseSubstituteIdentifiers(
+    self: *Tree,
+    /// Asserts that `index` points to a `.sexpr_head` node.
+    index: NodeIndex,
+    variables: []const IdentifierIndex,
+    substitutions: []const NodeIndex,
+) void {
+    std.debug.assert(self.getNode(index) == .sexpr_head);
+    var iterator: SexprIterator = .{ .tree = self, .node = index };
+    while (iterator.peekIndex()) |i| {
+        const node = self.getNode(i);
+        switch (node) {
+            .sexpr_head => self.recurseSubstituteIdentifiers(i, variables, substitutions),
+            .identifier => |identifier| {
+                for (variables, substitutions) |v, s| {
+                    if (v == identifier) {
+                        // this is a mess
+                        switch (self.getNode(iterator.node)) {
+                            .sexpr_head => self.nodes.slice()
+                                .items(.data)[@intFromEnum(iterator.node)].sexpr_head.value = s,
+                            .sexpr_tail => self.nodes.slice()
+                                .items(.data)[@intFromEnum(iterator.node)].sexpr_tail.value = s,
+                            else => unreachable,
+                        }
+                    }
+                }
+            },
+            else => {},
+        }
+        _ = iterator.next();
     }
 }
 
 fn evalFromNode(self: *Tree, allocator: std.mem.Allocator, index: NodeIndex) EvalError!void {
-    // var temp_allocator = std.heap.stackFallback(64, allocator);
-
     switch (self.getNode(index)) {
         .sexpr_head => |sexpr_head| {
             try self.evalFromNode(allocator, sexpr_head.value);
@@ -53,81 +139,71 @@ fn evalFromNode(self: *Tree, allocator: std.mem.Allocator, index: NodeIndex) Eva
             switch (self.getNode(sexpr_head.value)) {
                 .builtin_add => {
                     try self.evalTheRestOfTheFuckingSexpr(allocator, index);
-                    var current = sexpr_head.next;
+
                     var sum: f64 = 0;
-                    while (current != .none) {
-                        const node = self.getNode(current).sexpr_tail;
-                        const summand = self.getNode(node.value);
-                        if (summand == .number)
-                            sum += summand.number
+                    var iterator: SexprIterator = .{ .tree = self, .node = index };
+                    _ = iterator.next(); // Skip builtin name node.
+                    while (iterator.next()) |node| {
+                        if (node == .number)
+                            sum += node.number
                         else
                             return error.TypeError;
-                        current = node.next;
                     }
                     self.setNode(index, .{ .number = sum });
                 },
                 .builtin_subtract => {
                     try self.evalTheRestOfTheFuckingSexpr(allocator, index);
-                    var current = sexpr_head.next;
+
                     var difference: f64 = 0;
+                    var iterator: SexprIterator = .{ .tree = self, .node = index };
+                    _ = iterator.next(); // Skip builtin name node.
                     // First argument is added rather than subtracted.
-                    if (current != .none) {
-                        const node = self.getNode(current).sexpr_tail;
-                        const subtrahend = self.getNode(node.value);
-                        if (subtrahend == .number)
-                            difference += subtrahend.number
+                    if (iterator.next()) |node| {
+                        if (node == .number)
+                            difference += node.number
                         else
                             return error.TypeError;
-                        current = node.next;
                     }
-                    while (current != .none) {
-                        const node = self.getNode(current).sexpr_tail;
-                        const subtrahend = self.getNode(node.value);
-                        if (subtrahend == .number)
-                            difference -= subtrahend.number
+                    while (iterator.next()) |node| {
+                        if (node == .number)
+                            difference -= node.number
                         else
                             return error.TypeError;
-                        current = node.next;
                     }
                     self.setNode(index, .{ .number = difference });
                 },
                 .builtin_multiply => {
                     try self.evalTheRestOfTheFuckingSexpr(allocator, index);
-                    var current = sexpr_head.next;
+
                     var product: f64 = 1;
-                    while (current != .none) {
-                        const node = self.getNode(current).sexpr_tail;
-                        const multiplicand = self.getNode(node.value);
-                        if (multiplicand == .number)
-                            product *= multiplicand.number
+                    var iterator: SexprIterator = .{ .tree = self, .node = index };
+                    _ = iterator.next(); // Skip builtin name node.
+                    while (iterator.next()) |node| {
+                        if (node == .number)
+                            product *= node.number
                         else
                             return error.TypeError;
-                        current = node.next;
                     }
                     self.setNode(index, .{ .number = product });
                 },
                 .builtin_divide => {
                     try self.evalTheRestOfTheFuckingSexpr(allocator, index);
-                    var current = sexpr_head.next;
+
                     var quotient: f64 = 1;
-                    // First argument is multiplied rather than divided.
-                    if (current != .none) {
-                        const node = self.getNode(current).sexpr_tail;
-                        const numerator = self.getNode(node.value);
-                        if (numerator == .number)
-                            quotient *= numerator.number
+                    var iterator: SexprIterator = .{ .tree = self, .node = index };
+                    _ = iterator.next(); // Skip builtin name node.
+                    // First argument is added rather than subtracted.
+                    if (iterator.next()) |node| {
+                        if (node == .number)
+                            quotient *= node.number
                         else
                             return error.TypeError;
-                        current = node.next;
                     }
-                    while (current != .none) {
-                        const node = self.getNode(current).sexpr_tail;
-                        const denominator = self.getNode(node.value);
-                        if (denominator == .number) {
-                            if (denominator.number == 0) return error.DivideByZero;
-                            quotient /= denominator.number;
+                    while (iterator.next()) |node| {
+                        if (node == .number) {
+                            if (node.number == 0.0) return error.DivideByZero;
+                            quotient /= node.number;
                         } else return error.TypeError;
-                        current = node.next;
                     }
                     self.setNode(index, .{ .number = quotient });
                 },
@@ -138,8 +214,65 @@ fn evalFromNode(self: *Tree, allocator: std.mem.Allocator, index: NodeIndex) Eva
                     const quoted = self.getNode(next.sexpr_tail.value);
                     self.setNode(index, quoted);
                 },
-                .builtin_lambda => return error.NotImplemented,
-                else => unreachable,
+                .builtin_lambda => {
+                    // if (sexpr_head.next == .none) return error.IncorrectArgumentCount;
+                    // const variables = self.getNode(sexpr_head.next);
+                    // if (variables.sexpr_tail.next == .none) return error.IncorrectArgumentCount;
+                    // const expression = self.getNode(variables.sexpr_tail.next);
+                    // if (expression.sexpr_tail.next != .none) return error.IncorrectArgumentCount;
+                    // No processing needed here; if this gets applied to something it will get
+                    // resolved in the parent sexpr.
+                },
+                .sexpr_head => {
+                    // This sexpr's head should resolve to a lambda expression.
+                    const lambda = self.getNode(sexpr_head.value);
+                    if (self.getNode(lambda.sexpr_head.value) != .builtin_lambda)
+                        return error.TypeError;
+
+                    // const variables = self.getNode(lambda.sexpr_head.next);
+                    // const expression = self.getNode(variables.sexpr_tail.next);
+
+                    // Collect variable names.
+                    var variables_list: std.ArrayListUnmanaged(IdentifierIndex) = .empty;
+                    defer variables_list.deinit(allocator);
+                    var substitutions: std.ArrayListUnmanaged(NodeIndex) = .empty;
+                    defer substitutions.deinit(allocator);
+
+                    {
+                        var iterator: SexprIterator = .{
+                            .tree = self,
+                            .node = self.getNode(lambda.sexpr_head.next).sexpr_tail.value,
+                        };
+                        while (iterator.next()) |node| {
+                            if (node != .identifier) return error.TypeError;
+                            try variables_list.append(allocator, node.identifier);
+                        }
+                    }
+                    {
+                        var iterator: SexprIterator = .{ .tree = self, .node = index };
+                        _ = iterator.next(); // Skip lambda.
+                        while (iterator.nextIndex()) |node| {
+                            // if (node != .identifier) return error.TypeError;
+                            try substitutions.append(allocator, node);
+                        }
+                    }
+                    if (variables_list.items.len != substitutions.items.len)
+                        return error.IncorrectArgumentCount;
+
+                    const expression = self.getNode(lambda.sexpr_head.next).sexpr_tail.next;
+                    self.recurseSubstituteIdentifiers(
+                        self.getNode(expression).sexpr_tail.value,
+                        variables_list.items,
+                        substitutions.items,
+                    );
+
+                    const expression_data = self.getNode(self.getNode(expression).sexpr_tail.value);
+                    self.setNode(index, expression_data);
+                    try self.evalFromNode(allocator, index);
+                },
+                .sexpr_tail => unreachable,
+                .number, .string => return error.TypeError,
+                .identifier => return error.NotImplemented,
             }
         },
         .sexpr_tail => unreachable,
@@ -194,13 +327,15 @@ fn recurseWriteCode(self: Tree, writer: anytype, index: NodeIndex, options: Writ
     switch (node) {
         .sexpr_head => |_| {
             _ = try writer.write("(");
-            var current = index;
-            try self.recurseWriteCode(writer, self.getNode(current).sexpr_head.value, options);
-            current = self.getNode(current).sexpr_head.next;
-            while (current != .none) {
+            var iterator: SexprIterator = .{ .tree = &self, .node = index };
+            try self.recurseWriteCode(
+                writer,
+                iterator.nextIndex().?,
+                options,
+            );
+            while (iterator.nextIndex()) |current| {
                 _ = try writer.write(" ");
-                try self.recurseWriteCode(writer, self.getNode(current).sexpr_tail.value, options);
-                current = self.getNode(current).sexpr_tail.next;
+                try self.recurseWriteCode(writer, current, options);
             }
             _ = try writer.write(")");
         },
