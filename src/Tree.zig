@@ -18,12 +18,14 @@ const builtin_map: std.StaticStringMap(Node) = .initComptime(.{
     .{ "λ", .builtin_lambda },
 });
 
-const EvalError = error{
+pub const EvalError = error{
     DivideByZero,
     NotImplemented,
     TypeError,
     IncorrectArgumentCount,
-} || std.mem.Allocator.Error;
+    VariableNotBound,
+};
+// } || std.mem.Allocator.Error;
 
 const SexprIterator = struct {
     tree: *const Tree,
@@ -83,7 +85,7 @@ const SexprIterator = struct {
 /// Evaluate the AST in place.  Requires an allocator for some operations but cleans up after
 /// itself; any permanent memory will be allocated with `self.allocator` and cleaned up with
 /// `.deinit()`.
-pub fn eval(self: *Tree, allocator: std.mem.Allocator) EvalError!void {
+pub fn eval(self: *Tree, allocator: std.mem.Allocator) (EvalError || std.mem.Allocator.Error)!void {
     for (self.roots.items) |root| try self.evalFromNode(allocator, root);
 }
 
@@ -92,7 +94,7 @@ fn evalTheRestOfTheFuckingSexpr(
     self: *Tree,
     allocator: std.mem.Allocator,
     index: NodeIndex,
-) EvalError!void {
+) (EvalError || std.mem.Allocator.Error)!void {
     var iterator: SexprIterator = .{ .tree = self, .node = index };
     _ = iterator.next(); // Skip the head.
     while (iterator.nextIndex()) |node| try self.evalFromNode(allocator, node);
@@ -131,7 +133,11 @@ fn recurseSubstituteIdentifiers(
     }
 }
 
-fn evalFromNode(self: *Tree, allocator: std.mem.Allocator, index: NodeIndex) EvalError!void {
+fn evalFromNode(
+    self: *Tree,
+    allocator: std.mem.Allocator,
+    index: NodeIndex,
+) (EvalError || std.mem.Allocator.Error)!void {
     switch (self.getNode(index)) {
         .sexpr_head => |sexpr_head| {
             try self.evalFromNode(allocator, sexpr_head.value);
@@ -284,7 +290,7 @@ fn evalFromNode(self: *Tree, allocator: std.mem.Allocator, index: NodeIndex) Eva
             if (builtin_map.get(string)) |builtin|
                 self.setNode(index, builtin)
             else
-                return error.NotImplemented;
+                return error.VariableNotBound;
         },
         // These only appear in a branch that has already been parsed.
         .builtin_add,
@@ -309,6 +315,7 @@ pub fn format(
     }
     for (self.roots.items) |root| {
         try self.recurseWriteCode(writer, root, options);
+        _ = try writer.write(" ");
     }
 }
 
@@ -449,6 +456,8 @@ pub const Node = union(enum) {
     builtin_divide,
     builtin_quote,
     builtin_lambda,
+    builtin_define,
+    builtin_not,
 
     const empty_sexpr: Node = .{ .sexpr = .empty };
 
