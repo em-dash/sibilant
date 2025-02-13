@@ -29,8 +29,8 @@ pub fn main() !u8 {
     //     \\(or false true)
     //     \\(and false false false)
     // ;
-    const source = "(if (or false true) (quote 5) (quote 6))";
-    // const source = "(define x 420)(add x x)";
+    // const source = "(if (or false true) (quote 5) (quote 6))";
+    const source = "(define x 420)(add x x)";
 
     const tokens = try tokenization.tokenize(allocator, source);
     defer allocator.free(tokens);

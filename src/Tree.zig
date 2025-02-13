@@ -97,7 +97,7 @@ const SexprIterator = struct {
 /// `.deinit()`.
 pub fn eval(self: *Tree, allocator: std.mem.Allocator) (EvalError || std.mem.Allocator.Error)!void {
     for (self.roots.items) |root| {
-        // try self.recurseSubstituteIdentifiers()
+        try self.recurseSubstituteIdentifiers(root, self.defines);
         try self.evalFromNode(allocator, root);
     }
 }
@@ -117,24 +117,31 @@ fn recurseSubstituteIdentifiers(
     self: *Tree,
     /// Asserts that `index` points to a `.sexpr_head` node.
     index: NodeIndex,
-    variables: []const IdentifierIndex,
-    substitutions: []const NodeIndex,
-) void {
+    // variables: []const IdentifierIndex,
+    // substitutions: []const NodeIndex,
+    defines: std.AutoHashMapUnmanaged(IdentifierIndex, Node),
+) std.mem.Allocator.Error!void {
     std.debug.assert(self.getNode(index) == .sexpr_head);
     var iterator: SexprIterator = .{ .tree = self, .node = index };
     while (iterator.peekIndex()) |i| {
         const node = self.getNode(i);
         switch (node) {
-            .sexpr_head => self.recurseSubstituteIdentifiers(i, variables, substitutions),
+            .sexpr_head => try self.recurseSubstituteIdentifiers(i, defines),
             .identifier => |identifier| {
-                for (variables, substitutions) |v, s| {
-                    if (v == identifier) {
+                var defines_iterator = defines.iterator();
+                // for (variables, substitutions) |v, s| {
+                while (defines_iterator.next()) |entry| {
+                    if (entry.key_ptr.* == identifier) {
                         // this is a mess
                         switch (self.getNode(iterator.node)) {
-                            .sexpr_head => self.nodes.slice()
-                                .items(.data)[@intFromEnum(iterator.node)].sexpr_head.value = s,
-                            .sexpr_tail => self.nodes.slice()
-                                .items(.data)[@intFromEnum(iterator.node)].sexpr_tail.value = s,
+                            .sexpr_head => {
+                                const new = try self.deepCopyNode(node);
+                                self.setNode(iterator.node, new);
+                            },
+                            .sexpr_tail => {
+                                const new = try self.deepCopyNode(node);
+                                self.setNode(iterator.node, new);
+                            },
                             else => unreachable,
                         }
                     }
@@ -246,8 +253,7 @@ fn evalFromNode(
                     // Collect variable names.
                     var variables_list: std.ArrayListUnmanaged(IdentifierIndex) = .empty;
                     defer variables_list.deinit(allocator);
-                    // var substitutions: std.ArrayListUnmanaged(Node) = .empty;
-                    var substitutions: std.ArrayListUnmanaged(NodeIndex) = .empty;
+                    var substitutions: std.ArrayListUnmanaged(Node) = .empty;
                     defer substitutions.deinit(allocator);
 
                     {
@@ -263,19 +269,28 @@ fn evalFromNode(
                     {
                         var iterator: SexprIterator = .{ .tree = self, .node = index };
                         _ = iterator.next(); // Skip lambda.
-                        while (iterator.nextIndex()) |node| {
+                        while (iterator.next()) |node| {
                             // if (node != .identifier) return error.TypeError;
                             try substitutions.append(allocator, node);
                         }
                     }
+
                     if (variables_list.items.len != substitutions.items.len)
                         return error.IncorrectArgumentCount;
 
+                    // TODO this is a quick hack pls do it properly
+                    // var variables_list: std.ArrayListUnmanaged(IdentifierIndex) = .empty;
+                    // defer variables_list.deinit(allocator);
+                    // var substitutions: std.ArrayListUnmanaged(NodeIndex) = .empty;
+                    var defines: std.AutoHashMapUnmanaged(IdentifierIndex, Node) = .empty;
+                    defer defines.deinit(allocator);
+                    for (variables_list.items, substitutions.items) |v, s|
+                        try defines.put(allocator, v, s);
+
                     const expression = self.getNode(lambda.sexpr_head.next).sexpr_tail.next;
-                    self.recurseSubstituteIdentifiers(
+                    try self.recurseSubstituteIdentifiers(
                         self.getNode(expression).sexpr_tail.value,
-                        variables_list.items,
-                        substitutions.items,
+                        defines,
                     );
 
                     const expression_data = self.getNode(self.getNode(expression).sexpr_tail.value);
@@ -357,14 +372,20 @@ fn evalFromNode(
                     }
                 },
                 .builtin_define => {
-                    // var iterator: SexprIterator = .{ .tree = self, .node = index };
-                    // _ = iterator.next(); // Skip builtin name node.
-                    // const identifier = iterator.next();
-                    // if (identifier != .identifier) return error.TypeError;
-                    // const value = iterator.next();
-                    // try self.defines.put(self.allocator, identifier.identifier, value);
+                    var iterator: SexprIterator = .{ .tree = self, .node = index };
+                    _ = iterator.next(); // Skip builtin name node.
+                    const identifier = iterator.next();
+                    if (identifier == null) return error.IncorrectArgumentCount;
+                    if (identifier.? != .identifier) return error.TypeError;
+                    const value = iterator.next();
+                    if (value == null) return error.IncorrectArgumentCount;
+                    try self.defines.put(
+                        self.allocator,
+                        identifier.?.identifier,
+                        try self.deepCopyNode(value.?),
+                    );
 
-                    // self.setNode(index, .{.builtin_nil});
+                    self.setNode(index, .builtin_nil);
                 },
             }
         },
@@ -491,13 +512,20 @@ pub fn getIdentifierString(self: Tree, index: IdentifierIndex) []const u8 {
     return self.identifiers.items[@intFromEnum(index)];
 }
 
-/// Returns a literal `Node` value because we're overwriting existing values here.
-// pub fn deepCopyNode(self: *Tree, index: NodeIndex) std.mem.Allocator.Error!Node {
-//     const node = self.getNode(index);
-//     switch (node) {
-//         .sexpr_head
-//     }
-// }
+// Returns a literal `Node` value because we're overwriting existing values with the result.
+pub fn deepCopyNode(self: *Tree, node: Node) std.mem.Allocator.Error!Node {
+    return switch (node) {
+        .sexpr_head => |head| .{ .sexpr_head = .{
+            .value = try self.addNode(try self.deepCopyNode(self.getNode(head.value))),
+            .next = try self.addNode(try self.deepCopyNode(self.getNode(head.next))),
+        } },
+        .sexpr_tail => |tail| .{ .sexpr_tail = .{
+            .value = try self.addNode(try self.deepCopyNode(self.getNode(tail.value))),
+            .next = try self.addNode(try self.deepCopyNode(self.getNode(tail.next))),
+        } },
+        else => node,
+    };
+}
 
 const Tree = @This();
 
