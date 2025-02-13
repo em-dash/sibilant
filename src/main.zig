@@ -9,7 +9,7 @@ const Result = enum(u8) {
 
 pub fn main() !u8 {
     const stdout = std.io.getStdOut().writer();
-    const stderr = std.io.getStdErr().writer();
+    // const stderr = std.io.getStdErr().writer();
 
     var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
     const allocator = gpa.allocator();
@@ -21,25 +21,33 @@ pub fn main() !u8 {
     // const source = "(quote (* (+ (*) (*)) (+ (*) (*) (*))))";
     // const source = "(quote (a b c d e f))";
     // const source = "((lambda (a) (multiply a a)) 5)";
-    const source = "((lambda (a b c) (add (multiply a b) c)) 4 5 3)";
+    // const source = "((lambda (a b c) (add (multiply a b) c)) 4 5 3)";
+    // const source = "(not true)(not false)";
+    const source =
+        \\(or true true true false)
+        \\(or false)
+        \\(or false true)
+        \\(and false false false)
+    ;
     const tokens = try tokenization.tokenize(allocator, source);
     defer allocator.free(tokens);
     var tree = try Tree.parse(allocator, source, tokens);
     defer tree.deinit();
 
     try stdout.print("input: {}\n", .{tree});
-    tree.eval(allocator) catch |e| switch (e) {
-        inline error.DivideByZero,
-        error.NotImplemented,
-        error.TypeError,
-        error.IncorrectArgumentCount,
-        error.VariableNotBound,
-        => |ev| {
-            try stderr.print("error: {s}\n", .{@errorName(ev)});
-            return Result.eval_error.int();
-        },
-        else => |other| return other,
-    };
+    // tree.eval(allocator) catch |e| switch (e) {
+    //     inline error.DivideByZero,
+    //     error.NotImplemented,
+    //     error.TypeError,
+    //     error.IncorrectArgumentCount,
+    //     error.VariableNotBound,
+    //     => |ev| {
+    //         try stderr.print("error: {s}\n", .{@errorName(ev)});
+    //         return Result.eval_error.int();
+    //     },
+    //     else => |other| return other,
+    // };
+    try tree.eval(allocator);
 
     try stdout.print("evaluation: {any}\n", .{tree});
 

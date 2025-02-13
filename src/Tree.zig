@@ -16,6 +16,13 @@ const builtin_map: std.StaticStringMap(Node) = .initComptime(.{
     .{ "quote", .builtin_quote },
     .{ "lambda", .builtin_lambda },
     .{ "λ", .builtin_lambda },
+    .{ "not", .builtin_not },
+    .{ "true", .builtin_true },
+    .{ "false", .builtin_false },
+    .{ "#t", .builtin_true },
+    .{ "#f", .builtin_false },
+    .{ "and", .builtin_and },
+    .{ "or", .builtin_or },
 });
 
 pub const EvalError = error{
@@ -277,8 +284,58 @@ fn evalFromNode(
                     try self.evalFromNode(allocator, index);
                 },
                 .sexpr_tail => unreachable,
+                .builtin_true, .builtin_false => return error.TypeError,
                 .number, .string => return error.TypeError,
                 .identifier => return error.NotImplemented,
+                .builtin_not => {
+                    try self.evalTheRestOfTheFuckingSexpr(allocator, index);
+
+                    var iterator: SexprIterator = .{ .tree = self, .node = index };
+                    _ = iterator.next(); // Skip builtin name node.
+                    const operand = iterator.next() orelse return error.IncorrectArgumentCount;
+                    if (iterator.next() != null) return error.IncorrectArgumentCount;
+                    self.setNode(index, switch (operand) {
+                        .builtin_true => .builtin_false,
+                        .builtin_false => .builtin_true,
+                        else => return error.TypeError,
+                    });
+                },
+                .builtin_and => {
+                    try self.evalTheRestOfTheFuckingSexpr(allocator, index);
+
+                    var iterator: SexprIterator = .{ .tree = self, .node = index };
+                    _ = iterator.next(); // Skip builtin name node.
+                    var result = true;
+                    while (iterator.next()) |node| {
+                        switch (node) {
+                            .builtin_true => {},
+                            .builtin_false => result = false,
+                            else => return error.TypeError,
+                        }
+                    }
+                    self.setNode(index, switch (result) {
+                        true => .builtin_true,
+                        false => .builtin_false,
+                    });
+                },
+                .builtin_or => {
+                    try self.evalTheRestOfTheFuckingSexpr(allocator, index);
+
+                    var iterator: SexprIterator = .{ .tree = self, .node = index };
+                    _ = iterator.next(); // Skip builtin name node.
+                    var result = false;
+                    while (iterator.next()) |node| {
+                        switch (node) {
+                            .builtin_true => result = true,
+                            .builtin_false => {},
+                            else => return error.TypeError,
+                        }
+                    }
+                    self.setNode(index, switch (result) {
+                        true => .builtin_true,
+                        false => .builtin_false,
+                    });
+                },
             }
         },
         .sexpr_tail => unreachable,
@@ -299,6 +356,14 @@ fn evalFromNode(
         .builtin_multiply,
         .builtin_quote,
         .builtin_lambda,
+        .builtin_not,
+        .builtin_true,
+        .builtin_false,
+        .builtin_and,
+        .builtin_or,
+        // .builtin_equal,
+        // .builtin_greater,
+        // .builtin_less,
         => unreachable,
     }
 }
@@ -362,6 +427,11 @@ fn recurseWriteCode(self: Tree, writer: anytype, index: NodeIndex, options: Writ
         .builtin_multiply,
         .builtin_quote,
         .builtin_lambda,
+        .builtin_not,
+        .builtin_true,
+        .builtin_false,
+        .builtin_or,
+        .builtin_and,
         => {
             const tag_name = @tagName(node);
             try std.fmt.format(writer, "{s}", .{tag_name[8..]});
@@ -456,8 +526,12 @@ pub const Node = union(enum) {
     builtin_divide,
     builtin_quote,
     builtin_lambda,
-    builtin_define,
+    // builtin_define,
     builtin_not,
+    builtin_true,
+    builtin_false,
+    builtin_and,
+    builtin_or,
 
     const empty_sexpr: Node = .{ .sexpr = .empty };
 
