@@ -2,7 +2,7 @@ allocator: std.mem.Allocator,
 nodes: std.MultiArrayList(Node),
 identifiers: std.ArrayListUnmanaged([]const u8),
 roots: std.ArrayListUnmanaged(NodeIndex),
-// strings: []?[]u8,
+defines: std.AutoHashMapUnmanaged(IdentifierIndex, Node),
 
 const builtin_map: std.StaticStringMap(Node) = .initComptime(.{
     .{ "add", .builtin_add },
@@ -24,6 +24,9 @@ const builtin_map: std.StaticStringMap(Node) = .initComptime(.{
     .{ "and", .builtin_and },
     .{ "or", .builtin_or },
     .{ "if", .builtin_if },
+    .{ "define", .builtin_define },
+    .{ "nil", .builtin_nil },
+    .{ "null", .builtin_nil },
 });
 
 pub const EvalError = error{
@@ -33,7 +36,6 @@ pub const EvalError = error{
     IncorrectArgumentCount,
     VariableNotBound,
 };
-// } || std.mem.Allocator.Error;
 
 const SexprIterator = struct {
     tree: *const Tree,
@@ -94,7 +96,10 @@ const SexprIterator = struct {
 /// itself; any permanent memory will be allocated with `self.allocator` and cleaned up with
 /// `.deinit()`.
 pub fn eval(self: *Tree, allocator: std.mem.Allocator) (EvalError || std.mem.Allocator.Error)!void {
-    for (self.roots.items) |root| try self.evalFromNode(allocator, root);
+    for (self.roots.items) |root| {
+        // try self.recurseSubstituteIdentifiers()
+        try self.evalFromNode(allocator, root);
+    }
 }
 
 /// Evaluates an S-Expression from the second item onwards; does not effect the head.
@@ -241,6 +246,7 @@ fn evalFromNode(
                     // Collect variable names.
                     var variables_list: std.ArrayListUnmanaged(IdentifierIndex) = .empty;
                     defer variables_list.deinit(allocator);
+                    // var substitutions: std.ArrayListUnmanaged(Node) = .empty;
                     var substitutions: std.ArrayListUnmanaged(NodeIndex) = .empty;
                     defer substitutions.deinit(allocator);
 
@@ -277,7 +283,7 @@ fn evalFromNode(
                     try self.evalFromNode(allocator, index);
                 },
                 .sexpr_tail => unreachable,
-                .builtin_true, .builtin_false => return error.TypeError,
+                .builtin_true, .builtin_false, .builtin_nil => return error.TypeError,
                 .number, .string => return error.TypeError,
                 .identifier => return error.NotImplemented,
                 .builtin_not => {
@@ -350,6 +356,16 @@ fn evalFromNode(
                         else => return error.TypeError,
                     }
                 },
+                .builtin_define => {
+                    // var iterator: SexprIterator = .{ .tree = self, .node = index };
+                    // _ = iterator.next(); // Skip builtin name node.
+                    // const identifier = iterator.next();
+                    // if (identifier != .identifier) return error.TypeError;
+                    // const value = iterator.next();
+                    // try self.defines.put(self.allocator, identifier.identifier, value);
+
+                    // self.setNode(index, .{.builtin_nil});
+                },
             }
         },
         .sexpr_tail => unreachable,
@@ -364,6 +380,7 @@ fn evalFromNode(
                 return error.VariableNotBound;
         },
         // These only appear in a branch that has already been parsed.
+        .builtin_nil,
         .builtin_add,
         .builtin_subtract,
         .builtin_divide,
@@ -376,6 +393,7 @@ fn evalFromNode(
         .builtin_and,
         .builtin_or,
         .builtin_if,
+        .builtin_define,
         // .builtin_equal,
         // .builtin_greater,
         // .builtin_less,
@@ -436,6 +454,7 @@ fn recurseWriteCode(self: Tree, writer: anytype, index: NodeIndex, options: Writ
             "{s}",
             .{self.getIdentifierString(identifier)},
         ),
+        .builtin_nil => {}, // nil writes nothing
         .builtin_add,
         .builtin_subtract,
         .builtin_divide,
@@ -448,6 +467,7 @@ fn recurseWriteCode(self: Tree, writer: anytype, index: NodeIndex, options: Writ
         .builtin_or,
         .builtin_and,
         .builtin_if,
+        .builtin_define,
         => {
             const tag_name = @tagName(node);
             try std.fmt.format(writer, "{s}", .{tag_name[8..]});
@@ -471,6 +491,14 @@ pub fn getIdentifierString(self: Tree, index: IdentifierIndex) []const u8 {
     return self.identifiers.items[@intFromEnum(index)];
 }
 
+/// Returns a literal `Node` value because we're overwriting existing values here.
+// pub fn deepCopyNode(self: *Tree, index: NodeIndex) std.mem.Allocator.Error!Node {
+//     const node = self.getNode(index);
+//     switch (node) {
+//         .sexpr_head
+//     }
+// }
+
 const Tree = @This();
 
 fn init(allocator: std.mem.Allocator) Tree {
@@ -479,6 +507,7 @@ fn init(allocator: std.mem.Allocator) Tree {
         .nodes = .empty,
         .identifiers = .empty,
         .roots = .empty,
+        .defines = .empty,
         // .strings
     };
 }
@@ -487,7 +516,7 @@ pub fn deinit(self: *Tree) void {
     self.nodes.deinit(self.allocator);
     self.identifiers.deinit(self.allocator);
     self.roots.deinit(self.allocator);
-    // self.allocator.free(self.strings);
+    self.defines.deinit(self.allocator);
 }
 
 pub fn setNode(self: *Tree, index: NodeIndex, element: Node) void {
@@ -539,13 +568,14 @@ pub const Node = union(enum) {
     builtin_divide,
     builtin_quote,
     builtin_lambda,
-    // builtin_define,
+    builtin_define,
     builtin_not,
     builtin_true,
     builtin_false,
     builtin_and,
     builtin_or,
     builtin_if,
+    builtin_nil,
 
     const empty_sexpr: Node = .{ .sexpr = .empty };
 
@@ -660,8 +690,6 @@ test parse {
     defer std.testing.allocator.free(tokens);
     var tree = try parse(std.testing.allocator, source, tokens);
     defer tree.deinit();
-
-    try std.io.getStdOut().writer().print("{any}\n", .{tree});
 }
 
 const std = @import("std");
