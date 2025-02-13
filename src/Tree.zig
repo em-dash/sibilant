@@ -46,7 +46,7 @@ const SexprIterator = struct {
 
         const node = self.tree.getNode(self.node);
         switch (node) {
-            inline .sexpr_head, .sexpr_tail => |item| {
+            .sexpr_head, .sexpr_tail => |item| {
                 return self.tree.getNode(item.value);
             },
             else => unreachable,
@@ -58,7 +58,7 @@ const SexprIterator = struct {
 
         const node = self.tree.getNode(self.node);
         switch (node) {
-            inline .sexpr_head, .sexpr_tail => |item| return item.value,
+            .sexpr_head, .sexpr_tail => |item| return item.value,
             else => unreachable,
         }
     }
@@ -68,7 +68,7 @@ const SexprIterator = struct {
 
         const node = self.tree.getNode(self.node);
         switch (node) {
-            inline .sexpr_head, .sexpr_tail => |item| {
+            .sexpr_head, .sexpr_tail => |item| {
                 const result = self.tree.getNode(item.value);
                 self.node = item.next;
                 return result;
@@ -82,7 +82,7 @@ const SexprIterator = struct {
 
         const node = self.tree.getNode(self.node);
         switch (node) {
-            inline .sexpr_head, .sexpr_tail => |item| {
+            .sexpr_head, .sexpr_tail => |item| {
                 const result = item.value;
                 self.node = item.next;
                 return result;
