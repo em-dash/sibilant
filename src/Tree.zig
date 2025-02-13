@@ -73,7 +73,7 @@ const SexprIterator = struct {
                 self.node = item.next;
                 return result;
             },
-            else => unreachable,
+            else => return null,
         }
     }
 
@@ -87,7 +87,7 @@ const SexprIterator = struct {
                 self.node = item.next;
                 return result;
             },
-            else => unreachable,
+            else => return null,
         }
     }
 };
@@ -102,7 +102,7 @@ pub fn eval(self: *Tree, allocator: std.mem.Allocator) (EvalError || std.mem.All
     }
 }
 
-/// Evaluates an S-Expression from the second item onwards; does not effect the head.
+/// Evaluates an S-Expression from the second item onwards; does not affect the head.
 fn evalTheRestOfTheFuckingSexpr(
     self: *Tree,
     allocator: std.mem.Allocator,
@@ -113,12 +113,10 @@ fn evalTheRestOfTheFuckingSexpr(
     while (iterator.nextIndex()) |node| try self.evalFromNode(allocator, node);
 }
 
+/// Asserts that `index` points to a `.sexpr_head` node.
 fn recurseSubstituteIdentifiers(
     self: *Tree,
-    /// Asserts that `index` points to a `.sexpr_head` node.
     index: NodeIndex,
-    // variables: []const IdentifierIndex,
-    // substitutions: []const NodeIndex,
     defines: std.AutoHashMapUnmanaged(IdentifierIndex, Node),
 ) std.mem.Allocator.Error!void {
     std.debug.assert(self.getNode(index) == .sexpr_head);
@@ -129,18 +127,20 @@ fn recurseSubstituteIdentifiers(
             .sexpr_head => try self.recurseSubstituteIdentifiers(i, defines),
             .identifier => |identifier| {
                 var defines_iterator = defines.iterator();
-                // for (variables, substitutions) |v, s| {
                 while (defines_iterator.next()) |entry| {
                     if (entry.key_ptr.* == identifier) {
-                        // this is a mess
                         switch (self.getNode(iterator.node)) {
                             .sexpr_head => {
-                                const new = try self.deepCopyNode(node);
-                                self.setNode(iterator.node, new);
+                                const new = try self.deepCopyNode(entry.value_ptr.*);
+                                var temp = self.getNode(iterator.node);
+                                temp.sexpr_head.value = try self.addNode(new);
+                                self.setNode(iterator.node, temp);
                             },
                             .sexpr_tail => {
-                                const new = try self.deepCopyNode(node);
-                                self.setNode(iterator.node, new);
+                                const new = try self.deepCopyNode(entry.value_ptr.*);
+                                var temp = self.getNode(iterator.node);
+                                temp.sexpr_tail.value = try self.addNode(new);
+                                self.setNode(iterator.node, temp);
                             },
                             else => unreachable,
                         }
@@ -149,7 +149,7 @@ fn recurseSubstituteIdentifiers(
             },
             else => {},
         }
-        _ = iterator.next();
+        _ = iterator.nextIndex();
     }
 }
 
@@ -515,14 +515,24 @@ pub fn getIdentifierString(self: Tree, index: IdentifierIndex) []const u8 {
 // Returns a literal `Node` value because we're overwriting existing values with the result.
 pub fn deepCopyNode(self: *Tree, node: Node) std.mem.Allocator.Error!Node {
     return switch (node) {
-        .sexpr_head => |head| .{ .sexpr_head = .{
-            .value = try self.addNode(try self.deepCopyNode(self.getNode(head.value))),
-            .next = try self.addNode(try self.deepCopyNode(self.getNode(head.next))),
-        } },
-        .sexpr_tail => |tail| .{ .sexpr_tail = .{
-            .value = try self.addNode(try self.deepCopyNode(self.getNode(tail.value))),
-            .next = try self.addNode(try self.deepCopyNode(self.getNode(tail.next))),
-        } },
+        .sexpr_head => |head| .{
+            .sexpr_head = .{
+                .value = try self.addNode(try self.deepCopyNode(self.getNode(head.value))),
+                .next = if (head.next == .none)
+                    .none
+                else
+                    try self.addNode(try self.deepCopyNode(self.getNode(head.next))),
+            },
+        },
+        .sexpr_tail => |tail| .{
+            .sexpr_tail = .{
+                .value = try self.addNode(try self.deepCopyNode(self.getNode(tail.value))),
+                .next = if (tail.next == .none)
+                    .none
+                else
+                    try self.addNode(try self.deepCopyNode(self.getNode(tail.next))),
+            },
+        },
         else => node,
     };
 }
