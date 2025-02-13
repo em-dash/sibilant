@@ -541,23 +541,16 @@ pub const NodeIndex = enum(u32) {
 };
 pub const IdentifierIndex = enum(u32) { _ };
 
-pub const SexprHead = struct {
+pub const SexprItem = struct {
     value: NodeIndex,
     next: NodeIndex,
 
-    const empty: SexprHead = .{ .value = .none, .next = .none };
-};
-
-pub const SexprTail = struct {
-    value: NodeIndex,
-    next: NodeIndex,
-
-    const empty: SexprTail = .{ .value = .none, .next = .none };
+    const empty: SexprItem = .{ .value = .none, .next = .none };
 };
 
 pub const Node = union(enum) {
-    sexpr_head: SexprHead,
-    sexpr_tail: SexprTail,
+    sexpr_head: SexprItem,
+    sexpr_tail: SexprItem,
     number: f64,
     string: StringIndex,
     identifier: IdentifierIndex,
