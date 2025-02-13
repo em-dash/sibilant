@@ -23,6 +23,7 @@ const builtin_map: std.StaticStringMap(Node) = .initComptime(.{
     .{ "#f", .builtin_false },
     .{ "and", .builtin_and },
     .{ "or", .builtin_or },
+    .{ "if", .builtin_if },
 });
 
 pub const EvalError = error{
@@ -228,11 +229,6 @@ fn evalFromNode(
                     self.setNode(index, quoted);
                 },
                 .builtin_lambda => {
-                    // if (sexpr_head.next == .none) return error.IncorrectArgumentCount;
-                    // const variables = self.getNode(sexpr_head.next);
-                    // if (variables.sexpr_tail.next == .none) return error.IncorrectArgumentCount;
-                    // const expression = self.getNode(variables.sexpr_tail.next);
-                    // if (expression.sexpr_tail.next != .none) return error.IncorrectArgumentCount;
                     // No processing needed here; if this gets applied to something it will get
                     // resolved in the parent sexpr.
                 },
@@ -241,9 +237,6 @@ fn evalFromNode(
                     const lambda = self.getNode(sexpr_head.value);
                     if (self.getNode(lambda.sexpr_head.value) != .builtin_lambda)
                         return error.TypeError;
-
-                    // const variables = self.getNode(lambda.sexpr_head.next);
-                    // const expression = self.getNode(variables.sexpr_tail.next);
 
                     // Collect variable names.
                     var variables_list: std.ArrayListUnmanaged(IdentifierIndex) = .empty;
@@ -336,6 +329,27 @@ fn evalFromNode(
                         false => .builtin_false,
                     });
                 },
+                .builtin_if => {
+                    var iterator: SexprIterator = .{ .tree = self, .node = index };
+                    _ = iterator.next(); // Skip builtin name node.
+                    const condition = iterator.nextIndex() orelse return error.IncorrectArgumentCount;
+                    try self.evalFromNode(allocator, condition);
+                    const if_branch = iterator.nextIndex() orelse return error.IncorrectArgumentCount;
+                    const else_branch = iterator.nextIndex();
+                    switch (self.getNode(condition)) {
+                        .builtin_true => {
+                            try self.evalFromNode(allocator, if_branch);
+                            self.setNode(index, self.getNode(if_branch));
+                        },
+                        .builtin_false => {
+                            if (else_branch) |else_index| {
+                                try self.evalFromNode(allocator, else_index);
+                                self.setNode(index, self.getNode(else_index));
+                            }
+                        },
+                        else => return error.TypeError,
+                    }
+                },
             }
         },
         .sexpr_tail => unreachable,
@@ -361,6 +375,7 @@ fn evalFromNode(
         .builtin_false,
         .builtin_and,
         .builtin_or,
+        .builtin_if,
         // .builtin_equal,
         // .builtin_greater,
         // .builtin_less,
@@ -432,6 +447,7 @@ fn recurseWriteCode(self: Tree, writer: anytype, index: NodeIndex, options: Writ
         .builtin_false,
         .builtin_or,
         .builtin_and,
+        .builtin_if,
         => {
             const tag_name = @tagName(node);
             try std.fmt.format(writer, "{s}", .{tag_name[8..]});
@@ -491,11 +507,8 @@ pub fn addNode(self: *Tree, item: Node) !NodeIndex {
 
 pub const StringIndex = enum(u32) { _ };
 pub const NodeIndex = enum(u32) {
-    // root = 0,
     none = std.math.maxInt(u32),
     _,
-
-    // const root: NodeIndex = @enumFromInt(0);
 };
 pub const IdentifierIndex = enum(u32) { _ };
 
@@ -532,6 +545,7 @@ pub const Node = union(enum) {
     builtin_false,
     builtin_and,
     builtin_or,
+    builtin_if,
 
     const empty_sexpr: Node = .{ .sexpr = .empty };
 

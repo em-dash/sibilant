@@ -23,12 +23,13 @@ pub fn main() !u8 {
     // const source = "((lambda (a) (multiply a a)) 5)";
     // const source = "((lambda (a b c) (add (multiply a b) c)) 4 5 3)";
     // const source = "(not true)(not false)";
-    const source =
-        \\(or true true true false)
-        \\(or false)
-        \\(or false true)
-        \\(and false false false)
-    ;
+    // const source =
+    //     \\(or true true true false)
+    //     \\(or false)
+    //     \\(or false true)
+    //     \\(and false false false)
+    // ;
+    const source = "(if (or false true) (quote 5) (quote 6))";
     const tokens = try tokenization.tokenize(allocator, source);
     defer allocator.free(tokens);
     var tree = try Tree.parse(allocator, source, tokens);
