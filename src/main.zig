@@ -25,18 +25,6 @@ pub fn main() !u8 {
     var tree = try Tree.parse(allocator, input.items, tokens);
     defer tree.deinit();
 
-    // tree.eval(allocator) catch |e| switch (e) {
-    //     inline error.DivideByZero,
-    //     error.NotImplemented,
-    //     error.TypeError,
-    //     error.IncorrectArgumentCount,
-    //     error.VariableNotBound,
-    //     => |ev| {
-    //         try stderr.print("error: {s}\n", .{@errorName(ev)});
-    //         return Result.eval_error.int();
-    //     },
-    //     else => |other| return other,
-    // };
     try tree.eval(allocator);
 
     try stdout.print("evaluation: {any}\n", .{tree});
@@ -50,7 +38,6 @@ const tokenization = @import("tokenization.zig");
 const Tree = @import("Tree.zig");
 
 test {
-    // std.testing.refAllDeclsRecursive(@This());
     _ = @import("tokenization.zig");
     _ = @import("Tree.zig");
 }
