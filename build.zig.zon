@@ -8,7 +8,7 @@
 
     .dependencies = .{
         .zg = .{
-            .url = "git+https://codeberg.org/atman/zg.git#4a002763419a34d61dcbb1f415821b83b9bf8ddc#4a002763419a34d61dcbb1f415821b83b9bf8ddc",
+            .url = "git+https://codeberg.org/atman/zg.git#4a002763419a34d61dcbb1f415821b83b9bf8ddc",
             .hash = "1220f3e29bc40856bfc06e0ee133f814b0011c76de987d8a6a458c2f34d82708899a",
         },
     },
@@ -18,5 +18,6 @@
         "src",
         "LICENSE",
         "README.md",
+        "examples",
     },
 }
