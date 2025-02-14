@@ -98,8 +98,8 @@ const SexprIterator = struct {
 /// `.deinit()`.
 pub fn eval(self: *Tree, allocator: std.mem.Allocator) (EvalError || std.mem.Allocator.Error)!void {
     for (self.roots.items) |root| {
-        // try self.recurseSubstituteIdentifiers(root, self.defines);
         try self.evalFromNode(allocator, root);
+        // TODO garbage collect
     }
 }
 
@@ -271,7 +271,6 @@ fn evalFromNode(
                         var iterator: SexprIterator = .{ .tree = self, .node = index };
                         _ = iterator.next(); // Skip lambda.
                         while (iterator.next()) |node| {
-                            // if (node != .identifier) return error.TypeError;
                             try substitutions.append(allocator, node);
                         }
                     }
@@ -280,9 +279,6 @@ fn evalFromNode(
                         return error.IncorrectArgumentCount;
 
                     // TODO this is a quick hack pls do it properly
-                    // var variables_list: std.ArrayListUnmanaged(IdentifierIndex) = .empty;
-                    // defer variables_list.deinit(allocator);
-                    // var substitutions: std.ArrayListUnmanaged(NodeIndex) = .empty;
                     var defines: std.AutoHashMapUnmanaged(IdentifierIndex, Node) = .empty;
                     defer defines.deinit(allocator);
                     for (variables_list.items, substitutions.items) |v, s|
