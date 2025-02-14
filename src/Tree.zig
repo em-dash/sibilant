@@ -119,14 +119,13 @@ fn recurseSubstituteIdentifiers(
     self: *Tree,
     index: NodeIndex,
     defines: std.AutoHashMapUnmanaged(IdentifierIndex, Node),
-) std.mem.Allocator.Error!bool {
-    var result = false;
+) std.mem.Allocator.Error!void {
     std.debug.assert(self.getNode(index) == .sexpr_head);
     var iterator: SexprIterator = .{ .tree = self, .node = index };
     while (iterator.peekIndex()) |i| {
         const node = self.getNode(i);
         switch (node) {
-            .sexpr_head => result = try self.recurseSubstituteIdentifiers(i, defines),
+            .sexpr_head => try self.recurseSubstituteIdentifiers(i, defines),
             .identifier => |identifier| {
                 var defines_iterator = defines.iterator();
                 while (defines_iterator.next()) |entry| {
@@ -137,14 +136,12 @@ fn recurseSubstituteIdentifiers(
                                 var temp = self.getNode(iterator.node);
                                 temp.sexpr_head.value = try self.addNode(new);
                                 self.setNode(iterator.node, temp);
-                                result = true;
                             },
                             .sexpr_tail => {
                                 const new = try self.deepCopyNode(entry.value_ptr.*);
                                 var temp = self.getNode(iterator.node);
                                 temp.sexpr_tail.value = try self.addNode(new);
                                 self.setNode(iterator.node, temp);
-                                result = true;
                             },
                             else => unreachable,
                         }
@@ -155,7 +152,6 @@ fn recurseSubstituteIdentifiers(
         }
         _ = iterator.nextIndex();
     }
-    return result;
 }
 
 fn evalFromNode(
@@ -293,7 +289,7 @@ fn evalFromNode(
                         try defines.put(allocator, v, s);
 
                     const expression = self.getNode(lambda.sexpr_head.next).sexpr_tail.next;
-                    _ = try self.recurseSubstituteIdentifiers(
+                    try self.recurseSubstituteIdentifiers(
                         self.getNode(expression).sexpr_tail.value,
                         defines,
                     );
@@ -306,7 +302,7 @@ fn evalFromNode(
                 .builtin_true, .builtin_false, .builtin_nil => return error.TypeError,
                 .number, .string => return error.TypeError,
                 .identifier => {
-                    _ = try self.recurseSubstituteIdentifiers(index, self.defines);
+                    try self.recurseSubstituteIdentifiers(index, self.defines);
                     try self.evalFromNode(allocator, index);
                 },
                 .builtin_not => {
