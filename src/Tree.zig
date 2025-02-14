@@ -27,6 +27,7 @@ const builtin_map: std.StaticStringMap(Node) = .initComptime(.{
     .{ "null", .builtin_nil },
     .{ "equals", .builtin_equals },
     // .{ "=", .builtin_equals },
+    .{ "condition", .builtin_condition },
 });
 
 pub const EvalError = error{
@@ -97,7 +98,7 @@ const SexprIterator = struct {
 /// `.deinit()`.
 pub fn eval(self: *Tree, allocator: std.mem.Allocator) (EvalError || std.mem.Allocator.Error)!void {
     for (self.roots.items) |root| {
-        try self.recurseSubstituteIdentifiers(root, self.defines);
+        // try self.recurseSubstituteIdentifiers(root, self.defines);
         try self.evalFromNode(allocator, root);
     }
 }
@@ -118,13 +119,14 @@ fn recurseSubstituteIdentifiers(
     self: *Tree,
     index: NodeIndex,
     defines: std.AutoHashMapUnmanaged(IdentifierIndex, Node),
-) std.mem.Allocator.Error!void {
+) std.mem.Allocator.Error!bool {
+    var result = false;
     std.debug.assert(self.getNode(index) == .sexpr_head);
     var iterator: SexprIterator = .{ .tree = self, .node = index };
     while (iterator.peekIndex()) |i| {
         const node = self.getNode(i);
         switch (node) {
-            .sexpr_head => try self.recurseSubstituteIdentifiers(i, defines),
+            .sexpr_head => result = try self.recurseSubstituteIdentifiers(i, defines),
             .identifier => |identifier| {
                 var defines_iterator = defines.iterator();
                 while (defines_iterator.next()) |entry| {
@@ -135,12 +137,14 @@ fn recurseSubstituteIdentifiers(
                                 var temp = self.getNode(iterator.node);
                                 temp.sexpr_head.value = try self.addNode(new);
                                 self.setNode(iterator.node, temp);
+                                result = true;
                             },
                             .sexpr_tail => {
                                 const new = try self.deepCopyNode(entry.value_ptr.*);
                                 var temp = self.getNode(iterator.node);
                                 temp.sexpr_tail.value = try self.addNode(new);
                                 self.setNode(iterator.node, temp);
+                                result = true;
                             },
                             else => unreachable,
                         }
@@ -151,6 +155,7 @@ fn recurseSubstituteIdentifiers(
         }
         _ = iterator.nextIndex();
     }
+    return result;
 }
 
 fn evalFromNode(
@@ -288,7 +293,7 @@ fn evalFromNode(
                         try defines.put(allocator, v, s);
 
                     const expression = self.getNode(lambda.sexpr_head.next).sexpr_tail.next;
-                    try self.recurseSubstituteIdentifiers(
+                    _ = try self.recurseSubstituteIdentifiers(
                         self.getNode(expression).sexpr_tail.value,
                         defines,
                     );
@@ -300,7 +305,10 @@ fn evalFromNode(
                 .sexpr_tail => unreachable,
                 .builtin_true, .builtin_false, .builtin_nil => return error.TypeError,
                 .number, .string => return error.TypeError,
-                .identifier => return error.NotImplemented,
+                .identifier => {
+                    _ = try self.recurseSubstituteIdentifiers(index, self.defines);
+                    try self.evalFromNode(allocator, index);
+                },
                 .builtin_not => {
                     try self.evalTheRestOfTheFuckingSexpr(allocator, index);
 
@@ -404,6 +412,32 @@ fn evalFromNode(
                         false => .builtin_false,
                     });
                 },
+                .builtin_condition => {
+                    var iterator: SexprIterator = .{ .tree = self, .node = index };
+                    _ = iterator.next(); // Skip builtin name node.
+
+                    while (iterator.nextIndex()) |node| {
+                        if (self.getNode(node) != .sexpr_head) return error.TypeError;
+                        var condition_iterator: SexprIterator = .{ .tree = self, .node = node };
+                        const condition = condition_iterator.nextIndex() orelse
+                            return error.IncorrectArgumentCount;
+                        const consequent = condition_iterator.nextIndex() orelse
+                            return error.IncorrectArgumentCount;
+                        try self.evalFromNode(allocator, condition);
+                        switch (self.getNode(condition)) {
+                            .builtin_true => {
+                                try self.evalFromNode(allocator, consequent);
+                                self.setNode(index, self.getNode(consequent));
+                                break;
+                            },
+                            .builtin_false => {},
+                            else => return error.TypeError,
+                        }
+                    } else {
+                        // No conditions were true.
+                        self.setNode(index, .builtin_nil);
+                    }
+                },
             }
         },
         .sexpr_tail => unreachable,
@@ -413,9 +447,7 @@ fn evalFromNode(
             // If this is a bulitin, set it.
             const string = self.getIdentifierString(identifier);
             if (builtin_map.get(string)) |builtin|
-                self.setNode(index, builtin)
-            else
-                return error.VariableNotBound;
+                self.setNode(index, builtin);
         },
         // These only appear in a branch that has already been parsed.
         .builtin_nil,
@@ -433,6 +465,7 @@ fn evalFromNode(
         .builtin_if,
         .builtin_define,
         .builtin_equals,
+        .builtin_condition,
         // .builtin_greater_than,
         // .builtin_less_than,
         => unreachable,
@@ -507,6 +540,7 @@ fn recurseWriteCode(self: Tree, writer: anytype, index: NodeIndex, options: Writ
         .builtin_if,
         .builtin_define,
         .builtin_equals,
+        .builtin_condition,
         => {
             const tag_name = @tagName(node);
             try std.fmt.format(writer, "{s}", .{tag_name[8..]});
@@ -626,6 +660,7 @@ pub const Node = union(enum) {
     builtin_if,
     builtin_nil,
     builtin_equals,
+    builtin_condition,
 
     const empty_sexpr: Node = .{ .sexpr = .empty };
 
