@@ -10,39 +10,21 @@ const Result = enum(u8) {
 pub fn main() !u8 {
     const stdout = std.io.getStdOut().writer();
     // const stderr = std.io.getStdErr().writer();
+    const stdin = std.io.getStdIn().reader();
 
     var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
     const allocator = gpa.allocator();
     defer _ = gpa.deinit();
 
-    // const source = "(bork (1.5 2.5 3) (a b c d e) (lmao (lol (mdr))))";
-    // const source = "(/ (+ 1 (- 6 3)) 2 (* 3 6))";
-    // const source = "(quote (add 5 (multiply 3 8)))";
-    // const source = "(quote (* (+ (*) (*)) (+ (*) (*) (*))))";
-    // const source = "(quote (a b c d e f))";
-    // const source = "((lambda (a) (multiply a a)) 5)";
-    // const source = "((lambda (a b c) (add (multiply a b) c)) 4 5 3)";
-    // const source = "(not true)(not false)";
-    // const source =
-    //     \\(or true true true false)
-    //     \\(or false)
-    //     \\(or false true)
-    //     \\(and false false false)
-    // ;
-    const source = "(if (or #f #t) (quote 5) (quote 6))";
-    // const source = "(define x 420)(add x x)";
-    // const source = "(add 4 3)";
-    // const source =
-    //     \\(define f (lambda (a) (multiply a a)))
-    //     \\(f 5)
-    // ;
+    var input = std.ArrayList(u8).init(allocator);
+    defer input.deinit();
+    try stdin.readAllArrayList(&input, std.math.maxInt(u32));
 
-    const tokens = try tokenization.tokenize(allocator, source);
+    const tokens = try tokenization.tokenize(allocator, input.items);
     defer allocator.free(tokens);
-    var tree = try Tree.parse(allocator, source, tokens);
+    var tree = try Tree.parse(allocator, input.items, tokens);
     defer tree.deinit();
 
-    try stdout.print("input: {}\n", .{tree});
     // tree.eval(allocator) catch |e| switch (e) {
     //     inline error.DivideByZero,
     //     error.NotImplemented,
