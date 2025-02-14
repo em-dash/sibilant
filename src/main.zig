@@ -29,13 +29,13 @@ pub fn main() !u8 {
     //     \\(or false true)
     //     \\(and false false false)
     // ;
-    // const source = "(if (or false true) (quote 5) (quote 6))";
+    const source = "(if (or #f #t) (quote 5) (quote 6))";
     // const source = "(define x 420)(add x x)";
     // const source = "(add 4 3)";
-    const source =
-        \\(define f (lambda (a) (multiply a a)))
-        \\(f 5)
-    ;
+    // const source =
+    //     \\(define f (lambda (a) (multiply a a)))
+    //     \\(f 5)
+    // ;
 
     const tokens = try tokenization.tokenize(allocator, source);
     defer allocator.free(tokens);

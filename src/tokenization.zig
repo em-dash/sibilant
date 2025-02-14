@@ -51,7 +51,7 @@ pub fn tokenize(allocator: std.mem.Allocator, source: []const u8) ![]Token {
     if (source.len == 0) return &[_]Token{};
 
     var token_list = std.ArrayList(Token).init(allocator);
-    // errdefer token_list.deinit();
+    errdefer token_list.deinit();
 
     var iterator = code_point.Iterator{ .bytes = source };
     source_loop: while (true) {
@@ -64,6 +64,7 @@ pub fn tokenize(allocator: std.mem.Allocator, source: []const u8) ![]Token {
         _ = &state;
 
         token_loop: while (true) {
+            // std.debug.print("COPEDOINT {d} DISPLAY {u}\n", .{ iterator.peek().?.code, iterator.peek().?.code });
             switch (state) {
                 .start => if (iterator.peek()) |cp| {
                     if (cp.code == '(') {
@@ -78,26 +79,29 @@ pub fn tokenize(allocator: std.mem.Allocator, source: []const u8) ![]Token {
                         token.tag = .close;
                         try token_list.append(token);
                         break :token_loop;
-                    } else if (gen_cat_data.isLetter(cp.code) or
-                        gen_cat_data.isMark(cp.code) or
-                        props_data.isDecimal(cp.code) or
-                        gen_cat_data.isPunctuation(cp.code) or
-                        gen_cat_data.isSymbol(cp.code))
+                    } else if (props_data.isXidStart(cp.code) or
+                        props_data.isDecimal(cp.code))
+                        // } else if (gen_cat_data.isLetter(cp.code) or
+                        //     gen_cat_data.isMark(cp.code) or
+                        //     props_data.isDecimal(cp.code) or
+                        //     gen_cat_data.isPunctuation(cp.code) or
+                        //     gen_cat_data.isSymbol(cp.code))
                     {
                         state = .@"continue";
                         _ = iterator.next();
                     } else if (props_data.isWhitespace(cp.code)) {
                         _ = iterator.next();
                         token.start = iterator.i;
-                    } else @panic("lol");
+                    } else return error.IllegalCharacter;
                 } else break :source_loop,
                 .@"continue" => if (iterator.peek()) |cp| {
-                    if (gen_cat_data.isLetter(cp.code) or
-                        gen_cat_data.isMark(cp.code) or
-                        props_data.isDecimal(cp.code) or
-                        // gen_cat_data.isPunctuation(cp.code) or
-                        gen_cat_data.isSymbol(cp.code) or
-                        cp.code == '.')
+                    // if (gen_cat_data.isLetter(cp.code) or
+                    //     gen_cat_data.isMark(cp.code) or
+                    //     props_data.isDecimal(cp.code) or
+                    //     // gen_cat_data.isPunctuation(cp.code) or
+                    //     gen_cat_data.isSymbol(cp.code) or
+                    //     cp.code == '.')
+                    if (props_data.isXidContinue(cp.code))
                         _ = iterator.next()
                     else {
                         token.end = iterator.i;

@@ -19,8 +19,6 @@ const builtin_map: std.StaticStringMap(Node) = .initComptime(.{
     .{ "not", .builtin_not },
     .{ "true", .builtin_true },
     .{ "false", .builtin_false },
-    .{ "#t", .builtin_true },
-    .{ "#f", .builtin_false },
     .{ "and", .builtin_and },
     .{ "or", .builtin_or },
     .{ "if", .builtin_if },
