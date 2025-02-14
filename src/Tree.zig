@@ -25,6 +25,8 @@ const builtin_map: std.StaticStringMap(Node) = .initComptime(.{
     .{ "define", .builtin_define },
     .{ "nil", .builtin_nil },
     .{ "null", .builtin_nil },
+    .{ "equals", .builtin_equals },
+    .{ "=", .builtin_equals },
 });
 
 pub const EvalError = error{
@@ -385,6 +387,23 @@ fn evalFromNode(
 
                     self.setNode(index, .builtin_nil);
                 },
+                .builtin_equals => {
+                    try self.evalTheRestOfTheFuckingSexpr(allocator, index);
+
+                    var iterator: SexprIterator = .{ .tree = self, .node = index };
+                    _ = iterator.next(); // Skip builtin name node.
+                    var result = true;
+                    const value = iterator.next() orelse return error.IncorrectArgumentCount;
+                    while (iterator.next()) |item| result = switch (value) {
+                        .builtin_nil => false,
+                        inline else => std.meta.eql(value, item),
+                    };
+
+                    self.setNode(index, switch (result) {
+                        true => .builtin_true,
+                        false => .builtin_false,
+                    });
+                },
             }
         },
         .sexpr_tail => unreachable,
@@ -413,9 +432,9 @@ fn evalFromNode(
         .builtin_or,
         .builtin_if,
         .builtin_define,
-        // .builtin_equal,
-        // .builtin_greater,
-        // .builtin_less,
+        .builtin_equals,
+        // .builtin_greater_than,
+        // .builtin_less_than,
         => unreachable,
     }
 }
@@ -487,6 +506,7 @@ fn recurseWriteCode(self: Tree, writer: anytype, index: NodeIndex, options: Writ
         .builtin_and,
         .builtin_if,
         .builtin_define,
+        .builtin_equals,
         => {
             const tag_name = @tagName(node);
             try std.fmt.format(writer, "{s}", .{tag_name[8..]});
@@ -605,6 +625,7 @@ pub const Node = union(enum) {
     builtin_or,
     builtin_if,
     builtin_nil,
+    builtin_equals,
 
     const empty_sexpr: Node = .{ .sexpr = .empty };
 
