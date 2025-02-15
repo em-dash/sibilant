@@ -252,37 +252,24 @@ fn evalFromNode(
                         return error.TypeError;
 
                     // Collect variable names.
-                    var variables_list: std.ArrayListUnmanaged(IdentifierIndex) = .empty;
-                    defer variables_list.deinit(allocator);
-                    var substitutions: std.ArrayListUnmanaged(Node) = .empty;
-                    defer substitutions.deinit(allocator);
-
-                    {
-                        var iterator: SexprIterator = .{
-                            .tree = self,
-                            .node = self.getNode(lambda.sexpr_head.next).sexpr_tail.value,
-                        };
-                        while (iterator.next()) |node| {
-                            if (node != .identifier) return error.TypeError;
-                            try variables_list.append(allocator, node.identifier);
-                        }
-                    }
-                    {
-                        var iterator: SexprIterator = .{ .tree = self, .node = index };
-                        _ = iterator.next(); // Skip lambda.
-                        while (iterator.next()) |node| {
-                            try substitutions.append(allocator, node);
-                        }
-                    }
-
-                    if (variables_list.items.len != substitutions.items.len)
-                        return error.IncorrectArgumentCount;
-
-                    // TODO this is a quick hack pls do it properly
+                    var variable_iterator: SexprIterator = .{
+                        .tree = self,
+                        .node = self.getNode(lambda.sexpr_head.next).sexpr_tail.value,
+                    };
+                    var substitution_iterator: SexprIterator = .{ .tree = self, .node = index };
+                    _ = substitution_iterator.next(); // Skip lambda keyword.
                     var defines: std.AutoHashMapUnmanaged(IdentifierIndex, Node) = .empty;
                     defer defines.deinit(allocator);
-                    for (variables_list.items, substitutions.items) |v, s|
-                        try defines.put(allocator, v, s);
+                    while (true) {
+                        const variable = variable_iterator.next();
+                        const substitution = substitution_iterator.next();
+                        if (variable == null and substitution == null)
+                            break
+                        else if (variable != null and substitution != null)
+                            try defines.put(allocator, variable.?.identifier, substitution.?)
+                        else
+                            return error.IncorrectArgumentCount;
+                    }
 
                     const expression = self.getNode(lambda.sexpr_head.next).sexpr_tail.next;
                     try self.recurseSubstituteIdentifiers(
