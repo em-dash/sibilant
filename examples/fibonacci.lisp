@@ -1,4 +1,4 @@
-(define fibonacci (lambda (n)
+(define fibonacci '(lambda (n)
   (condition ((equals n 0) 0)
              ((equals n 1) 1)
              (true (add (fibonacci (subtract n 1)) (fibonacci (subtract n 2)))))))

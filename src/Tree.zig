@@ -364,12 +364,14 @@ fn evalFromNode(
                     const identifier = iterator.next();
                     if (identifier == null) return error.IncorrectArgumentCount;
                     if (identifier.? != .identifier) return error.TypeError;
-                    const value = iterator.next();
-                    if (value == null) return error.IncorrectArgumentCount;
+                    const value_index = iterator.nextIndex() orelse
+                        return error.IncorrectArgumentCount;
+                    try self.evalFromNode(allocator, value_index);
+                    const value = self.getNode(value_index);
                     try self.defines.put(
                         self.allocator,
                         identifier.?.identifier,
-                        try self.deepCopyNode(value.?),
+                        try self.deepCopyNode(value),
                     );
 
                     self.setNode(index, .builtin_nil);
@@ -704,6 +706,18 @@ fn recurseParse(
                 const value = try recurseParse(source, iterator, tree);
                 tree.nodes.slice().items(.data)[@intFromEnum(current)].sexpr_tail.value = value;
             } else return error.UnexpectedEof;
+            return root;
+        },
+        .quote => {
+            const value = try recurseParse(source, iterator, tree);
+            const next = try tree.addNode(
+                .{ .sexpr_tail = .{ .value = value, .next = .none } },
+            );
+            const identifier = try tree.getOrPutIdentifier("quote");
+            const quote = try tree.addNode(.{ .identifier = identifier });
+            const root = try tree.addNode(
+                .{ .sexpr_head = .{ .value = quote, .next = next } },
+            );
             return root;
         },
         .close => {

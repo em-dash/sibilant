@@ -7,7 +7,7 @@ pub const Token = struct {
     const Tag = enum {
         open,
         close,
-        // quote,
+        quote,
         string,
         identifier,
         number,
@@ -64,7 +64,6 @@ pub fn tokenize(allocator: std.mem.Allocator, source: []const u8) ![]Token {
         _ = &state;
 
         token_loop: while (true) {
-            // std.debug.print("COPEDOINT {d} DISPLAY {u}\n", .{ iterator.peek().?.code, iterator.peek().?.code });
             switch (state) {
                 .start => if (iterator.peek()) |cp| {
                     if (cp.code == '(') {
@@ -79,13 +78,14 @@ pub fn tokenize(allocator: std.mem.Allocator, source: []const u8) ![]Token {
                         token.tag = .close;
                         try token_list.append(token);
                         break :token_loop;
+                    } else if (cp.code == '\'') {
+                        _ = iterator.next();
+                        token.end = iterator.i;
+                        token.tag = .quote;
+                        try token_list.append(token);
+                        break :token_loop;
                     } else if (props_data.isXidStart(cp.code) or
                         props_data.isDecimal(cp.code))
-                        // } else if (gen_cat_data.isLetter(cp.code) or
-                        //     gen_cat_data.isMark(cp.code) or
-                        //     props_data.isDecimal(cp.code) or
-                        //     gen_cat_data.isPunctuation(cp.code) or
-                        //     gen_cat_data.isSymbol(cp.code))
                     {
                         state = .@"continue";
                         _ = iterator.next();
@@ -95,12 +95,6 @@ pub fn tokenize(allocator: std.mem.Allocator, source: []const u8) ![]Token {
                     } else return error.IllegalCharacter;
                 } else break :source_loop,
                 .@"continue" => if (iterator.peek()) |cp| {
-                    // if (gen_cat_data.isLetter(cp.code) or
-                    //     gen_cat_data.isMark(cp.code) or
-                    //     props_data.isDecimal(cp.code) or
-                    //     // gen_cat_data.isPunctuation(cp.code) or
-                    //     gen_cat_data.isSymbol(cp.code) or
-                    //     cp.code == '.')
                     if (props_data.isXidContinue(cp.code))
                         _ = iterator.next()
                     else {
